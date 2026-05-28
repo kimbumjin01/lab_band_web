@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from urllib.parse import parse_qs, urlparse
 
 import pandas as pd
@@ -22,6 +22,8 @@ MEMBERS = [
     "성민수",
     "유수연",
 ]
+
+MEMBER_COUNT = len(MEMBERS)
 
 MENU_OPTIONS = ["선곡 투표", "일정 조정", "합주실 예약"]
 MENU_ICONS = {
@@ -49,8 +51,20 @@ def init_session_state() -> None:
         st.session_state.votes = {}
     if "next_song_id" not in st.session_state:
         st.session_state.next_song_id = 1
-    if "availability" not in st.session_state:
-        st.session_state.availability = {}
+    if "member_availability" not in st.session_state:
+        st.session_state.member_availability = {member: {} for member in MEMBERS}
+    if "availability" in st.session_state:
+        del st.session_state.availability
+
+
+def slot_key(iso_date: str, time_slot: str) -> str:
+    return f"{iso_date}|{time_slot}"
+
+
+def member_slots(member: str) -> dict:
+    if member not in st.session_state.member_availability:
+        st.session_state.member_availability[member] = {}
+    return st.session_state.member_availability[member]
 
 
 def youtube_embed_url(url: str) -> str:
@@ -88,33 +102,58 @@ def date_column_label(d: date) -> str:
     return f"{d.month}/{d.day} ({weekday})"
 
 
-def build_availability_df(start: date, end: date) -> pd.DataFrame:
+def date_range_columns(start: date, end: date) -> tuple[list[date], list[str]]:
     dates = [start + timedelta(days=i) for i in range((end - start).days + 1)]
     columns = [date_column_label(d) for d in dates]
     st.session_state.schedule_col_iso = {
         label: d.isoformat() for label, d in zip(columns, dates)
     }
+    return dates, columns
+
+
+def build_member_availability_df(start: date, end: date, member: str) -> pd.DataFrame:
+    _, columns = date_range_columns(start, end)
     rows = time_slots()
+    slots = member_slots(member)
     data = {}
 
-    for col_label, d in zip(columns, dates):
-        iso = d.isoformat()
-        data[col_label] = [
-            bool(st.session_state.availability.get(f"{iso}|{slot}", False))
-            for slot in rows
-        ]
+    for col_label in columns:
+        iso = st.session_state.schedule_col_iso[col_label]
+        data[col_label] = [bool(slots.get(slot_key(iso, slot), False)) for slot in rows]
 
     return pd.DataFrame(data, index=rows)
 
 
-def save_availability_from_df(df: pd.DataFrame) -> None:
+def build_availability_summary_df(start: date, end: date) -> pd.DataFrame:
+    _, columns = date_range_columns(start, end)
+    rows = time_slots()
+    data = {}
+
+    for col_label in columns:
+        iso = st.session_state.schedule_col_iso[col_label]
+        data[col_label] = []
+        for slot in rows:
+            key = slot_key(iso, slot)
+            count = sum(
+                1
+                for member in MEMBERS
+                if member_slots(member).get(key, False)
+            )
+            data[col_label].append(f"{count}/{MEMBER_COUNT}")
+
+    return pd.DataFrame(data, index=rows)
+
+
+def save_member_availability_from_df(df: pd.DataFrame, member: str) -> None:
+    slots = member_slots(member)
     col_iso = st.session_state.get("schedule_col_iso", {})
+
     for col_label in df.columns:
         iso = col_iso.get(col_label)
         if not iso:
             continue
         for slot in df.index:
-            st.session_state.availability[f"{iso}|{slot}"] = bool(df.loc[slot, col_label])
+            slots[slot_key(iso, slot)] = bool(df.loc[slot, col_label])
 
 
 def render_vote_tab() -> None:
@@ -123,6 +162,7 @@ def render_vote_tab() -> None:
 
     with st.expander("곡 추가", expanded=len(st.session_state.songs) == 0):
         with st.form("add_song_form", clear_on_submit=True):
+            uploader = st.selectbox("등록자 (본인 이름)", MEMBERS)
             title = st.text_input("곡 제목", placeholder="예: 봄날")
             youtube_url = st.text_input(
                 "유튜브 링크",
@@ -143,10 +183,13 @@ def render_vote_tab() -> None:
                             "id": song_id,
                             "title": title.strip(),
                             "url": youtube_embed_url(youtube_url),
+                            "uploaded_by": uploader,
                         }
                     )
                     st.session_state.votes[song_id] = {}
-                    st.success(f"「{title.strip()}」이(가) 추가되었습니다.")
+                    st.success(
+                        f"{uploader}님이 「{title.strip()}」을(를) 추가했습니다."
+                    )
                     st.rerun()
 
     if not st.session_state.songs:
@@ -161,11 +204,13 @@ def render_vote_tab() -> None:
         song_id = song["id"]
         avg = song_average(song_id)
         vote_count = len(st.session_state.votes.get(song_id, {}))
+        uploader = song.get("uploaded_by", "미상")
 
         with st.container(border=True):
             header_col, score_col = st.columns([3, 1])
             with header_col:
                 st.markdown(f"### {song['title']}")
+                st.caption(f"등록: **{uploader}**")
             with score_col:
                 if avg is not None:
                     st.metric("평균 점수", f"{avg:.1f} / 5", f"{vote_count}명 투표")
@@ -204,7 +249,10 @@ def render_vote_tab() -> None:
 
 def render_schedule_tab() -> None:
     st.subheader("일정 조정")
-    st.caption("가능한 날짜·시간에 체크해 주세요. (When2Meet 스타일)")
+    st.caption(
+        "본인 이름을 선택한 뒤 가능한 시간을 체크하세요. "
+        f"아래 요약 표에는 시간대별로 몇 명이 가능한지 ({MEMBER_COUNT}명 기준) 표시됩니다."
+    )
 
     today = date.today()
     default_end = today + timedelta(days=27)
@@ -224,28 +272,48 @@ def render_schedule_tab() -> None:
     if (end_date - start_date).days + 1 > 28:
         st.warning("선택 범위가 28일을 넘습니다. 표가 넓어질 수 있습니다.")
 
-    df = build_availability_df(start_date, end_date)
+    schedule_member = st.selectbox(
+        "일정 입력 (본인 이름)",
+        MEMBERS,
+        key="schedule_member",
+    )
 
-    st.markdown("**가능 시간 체크** · 행 = 시간, 열 = 날짜")
+    summary_df = build_availability_summary_df(start_date, end_date)
+
+    st.markdown("**팀 가능 인원 요약** · 각 칸 = `가능 인원 / 전체`")
+    st.dataframe(
+        summary_df,
+        use_container_width=True,
+        hide_index=False,
+    )
+
+    st.divider()
+
+    member_df = build_member_availability_df(start_date, end_date, schedule_member)
+
+    st.markdown(f"**{schedule_member}님의 가능 시간** · 행 = 시간, 열 = 날짜")
     edited_df = st.data_editor(
-        df,
+        member_df,
         use_container_width=True,
         hide_index=False,
         column_config={
             col: st.column_config.CheckboxColumn(
                 col,
-                help=f"{col} 이(가) 가능하면 체크",
+                help=f"{col}에 가능하면 체크",
                 default=False,
             )
-            for col in df.columns
+            for col in member_df.columns
         },
-        key=f"schedule_editor_{start_date}_{end_date}",
+        key=f"schedule_editor_{schedule_member}_{start_date}_{end_date}",
     )
 
-    save_availability_from_df(edited_df)
+    save_member_availability_from_df(edited_df, schedule_member)
 
-    checked = int(edited_df.values.sum())
-    st.caption(f"현재 체크된 칸: {checked}개 · 변경 사항은 자동 저장됩니다.")
+    my_checked = int(edited_df.values.sum())
+    st.caption(
+        f"{schedule_member}님이 체크한 칸: {my_checked}개 · "
+        "변경 사항은 자동 저장됩니다."
+    )
 
 
 def render_booking_tab() -> None:
@@ -287,11 +355,11 @@ def inject_styles() -> None:
         [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"] {
             background: rgba(255, 255, 255, 0.05);
             border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 14px;
-            padding: 0.95rem 1.15rem !important;
-            margin-bottom: 0.65rem !important;
-            font-size: 1.05rem !important;
-            font-weight: 500;
+            border-radius: 16px;
+            padding: 1.15rem 1.3rem !important;
+            margin-bottom: 0.9rem !important;
+            font-size: 1.18rem !important;
+            font-weight: 600;
             transition: all 0.2s ease;
         }
 
@@ -301,7 +369,7 @@ def inject_styles() -> None:
         }
 
         [data-testid="stSidebar"] .stRadio div[role="radiogroup"] {
-            gap: 0.15rem;
+            gap: 0.35rem;
         }
 
         h1 {
@@ -314,11 +382,11 @@ def inject_styles() -> None:
         }
 
         .sidebar-brand {
-            font-size: 2rem;
+            font-size: 2.55rem;
             font-weight: 800;
             letter-spacing: -0.03em;
-            margin-bottom: 0.35rem;
-            line-height: 1.2;
+            margin-bottom: 0.45rem;
+            line-height: 1.15;
             background: linear-gradient(120deg, #fff 20%, #c4b5fd 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
@@ -326,10 +394,11 @@ def inject_styles() -> None:
         }
 
         .sidebar-tagline {
-            font-size: 1.05rem !important;
-            color: #b8b4c8 !important;
-            margin-bottom: 1.75rem;
-            font-weight: 500;
+            font-size: 1.28rem !important;
+            color: #c9c5d8 !important;
+            margin-bottom: 2rem;
+            font-weight: 600;
+            line-height: 1.35;
         }
 
         [data-testid="stVideo"] {
