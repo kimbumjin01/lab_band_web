@@ -4,6 +4,8 @@ from urllib.parse import parse_qs, urlparse
 import pandas as pd
 import streamlit as st
 
+import db
+
 st.set_page_config(
     page_title="LAB A팀 합주 관리",
     page_icon="🎸",
@@ -45,26 +47,41 @@ PRACTICE_ROOMS = [
 
 
 def init_session_state() -> None:
-    if "songs" not in st.session_state:
-        st.session_state.songs = []
-    if "votes" not in st.session_state:
-        st.session_state.votes = {}
-    if "next_song_id" not in st.session_state:
-        st.session_state.next_song_id = 1
-    if "member_availability" not in st.session_state:
-        st.session_state.member_availability = {member: {} for member in MEMBERS}
-    if "availability" in st.session_state:
-        del st.session_state.availability
+    if "schedule_col_iso" not in st.session_state:
+        st.session_state.schedule_col_iso = {}
 
 
 def slot_key(iso_date: str, time_slot: str) -> str:
     return f"{iso_date}|{time_slot}"
 
 
-def member_slots(member: str) -> dict:
-    if member not in st.session_state.member_availability:
-        st.session_state.member_availability[member] = {}
-    return st.session_state.member_availability[member]
+@st.cache_data(ttl=15)
+def load_songs() -> list[dict] | None:
+    return db.get_all_songs()
+
+
+@st.cache_data(ttl=15)
+def load_votes(song_id: int) -> dict[str, int] | None:
+    return db.get_votes(song_id)
+
+
+@st.cache_data(ttl=15)
+def load_member_availability(
+    member: str, start_date: date, end_date: date
+) -> dict[str, bool] | None:
+    return db.get_member_availability(member, start_date, end_date)
+
+
+@st.cache_data(ttl=15)
+def load_all_availability(
+    start_date: date, end_date: date
+) -> dict[str, dict[str, bool]] | None:
+    return db.get_all_availability(start_date, end_date)
+
+
+def after_write() -> None:
+    st.cache_data.clear()
+    st.rerun()
 
 
 def youtube_embed_url(url: str) -> str:
@@ -86,10 +103,10 @@ def youtube_embed_url(url: str) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
-def song_average(song_id: int) -> float | None:
-    scores = list(st.session_state.votes.get(song_id, {}).values())
-    if not scores:
+def song_average(votes: dict[str, int]) -> float | None:
+    if not votes:
         return None
+    scores = list(votes.values())
     return sum(scores) / len(scores)
 
 
@@ -111,10 +128,11 @@ def date_range_columns(start: date, end: date) -> tuple[list[date], list[str]]:
     return dates, columns
 
 
-def build_member_availability_df(start: date, end: date, member: str) -> pd.DataFrame:
+def build_member_availability_df(
+    start: date, end: date, member: str, slots: dict[str, bool]
+) -> pd.DataFrame:
     _, columns = date_range_columns(start, end)
     rows = time_slots()
-    slots = member_slots(member)
     data = {}
 
     for col_label in columns:
@@ -124,7 +142,9 @@ def build_member_availability_df(start: date, end: date, member: str) -> pd.Data
     return pd.DataFrame(data, index=rows)
 
 
-def build_availability_summary_df(start: date, end: date) -> pd.DataFrame:
+def build_availability_summary_df(
+    start: date, end: date, all_availability: dict[str, dict[str, bool]]
+) -> pd.DataFrame:
     _, columns = date_range_columns(start, end)
     rows = time_slots()
     data = {}
@@ -135,32 +155,39 @@ def build_availability_summary_df(start: date, end: date) -> pd.DataFrame:
         for slot in rows:
             key = slot_key(iso, slot)
             count = sum(
-                1
-                for member in MEMBERS
-                if member_slots(member).get(key, False)
+                1 for member in MEMBERS if all_availability.get(member, {}).get(key, False)
             )
             data[col_label].append(f"{count}/{MEMBER_COUNT}")
 
     return pd.DataFrame(data, index=rows)
 
 
-def save_member_availability_from_df(df: pd.DataFrame, member: str) -> None:
-    slots = member_slots(member)
+def save_member_availability_from_df(df: pd.DataFrame, member: str) -> bool:
     col_iso = st.session_state.get("schedule_col_iso", {})
 
     for col_label in df.columns:
         iso = col_iso.get(col_label)
         if not iso:
             continue
+        slot_date = date.fromisoformat(iso)
         for slot in df.index:
-            slots[slot_key(iso, slot)] = bool(df.loc[slot, col_label])
+            available = bool(df.loc[slot, col_label])
+            if not db.upsert_availability(member, slot_date, slot, available):
+                return False
+    return True
 
 
 def render_vote_tab() -> None:
     st.subheader("선곡 투표")
     st.caption("곡을 추가하고, 팀원별로 1~5점을 투표해 보세요.")
 
-    with st.expander("곡 추가", expanded=len(st.session_state.songs) == 0):
+    with st.spinner("곡 목록 불러오는 중..."):
+        songs = load_songs()
+
+    if songs is None:
+        return
+
+    with st.expander("곡 추가", expanded=len(songs) == 0):
         with st.form("add_song_form", clear_on_submit=True):
             uploader = st.selectbox("등록자 (본인 이름)", MEMBERS)
             title = st.text_input("곡 제목", placeholder="예: 봄날")
@@ -176,23 +203,19 @@ def render_vote_tab() -> None:
                 elif not youtube_url.strip():
                     st.warning("유튜브 링크를 입력해 주세요.")
                 else:
-                    song_id = st.session_state.next_song_id
-                    st.session_state.next_song_id += 1
-                    st.session_state.songs.append(
-                        {
-                            "id": song_id,
-                            "title": title.strip(),
-                            "url": youtube_embed_url(youtube_url),
-                            "uploaded_by": uploader,
-                        }
-                    )
-                    st.session_state.votes[song_id] = {}
-                    st.success(
-                        f"{uploader}님이 「{title.strip()}」을(를) 추가했습니다."
-                    )
-                    st.rerun()
+                    with st.spinner("저장 중..."):
+                        ok = db.add_song(
+                            title.strip(),
+                            youtube_embed_url(youtube_url),
+                            uploader,
+                        )
+                    if ok:
+                        st.success(
+                            f"{uploader}님이 「{title.strip()}」을(를) 추가했습니다."
+                        )
+                        after_write()
 
-    if not st.session_state.songs:
+    if not songs:
         st.info("아직 등록된 곡이 없습니다. 위 폼에서 곡을 추가해 주세요.")
         return
 
@@ -200,10 +223,14 @@ def render_vote_tab() -> None:
 
     st.divider()
 
-    for song in st.session_state.songs:
-        song_id = song["id"]
-        avg = song_average(song_id)
-        vote_count = len(st.session_state.votes.get(song_id, {}))
+    for song in songs:
+        song_id = int(song["id"])
+        votes = load_votes(song_id)
+        if votes is None:
+            continue
+
+        avg = song_average(votes)
+        vote_count = len(votes)
         uploader = song.get("uploaded_by", "미상")
 
         with st.container(border=True):
@@ -221,7 +248,7 @@ def render_vote_tab() -> None:
             with video_col:
                 st.video(song["url"])
             with vote_col:
-                my_score = st.session_state.votes.get(song_id, {}).get(voter)
+                my_score = votes.get(voter)
                 default_score = int(my_score) if my_score is not None else 3
 
                 score = st.slider(
@@ -237,11 +264,11 @@ def render_vote_tab() -> None:
                     key=f"submit_vote_{song_id}",
                     use_container_width=True,
                 ):
-                    if song_id not in st.session_state.votes:
-                        st.session_state.votes[song_id] = {}
-                    st.session_state.votes[song_id][voter] = score
-                    st.toast(f"{voter}님이 「{song['title']}」에 {score}점 투표!")
-                    st.rerun()
+                    with st.spinner("저장 중..."):
+                        ok = db.upsert_vote(song_id, voter, score)
+                    if ok:
+                        st.toast(f"{voter}님이 「{song['title']}」에 {score}점 투표!")
+                        after_write()
 
                 if my_score is not None:
                     st.caption(f"내 투표: {my_score}점 (변경 시 다시 제출)")
@@ -278,7 +305,15 @@ def render_schedule_tab() -> None:
         key="schedule_member",
     )
 
-    summary_df = build_availability_summary_df(start_date, end_date)
+    with st.spinner("팀 일정 불러오는 중..."):
+        all_availability = load_all_availability(start_date, end_date)
+
+    if all_availability is None:
+        return
+
+    summary_df = build_availability_summary_df(
+        start_date, end_date, all_availability
+    )
 
     st.markdown("**팀 가능 인원 요약** · 각 칸 = `가능 인원 / 전체`")
     st.dataframe(
@@ -289,7 +324,17 @@ def render_schedule_tab() -> None:
 
     st.divider()
 
-    member_df = build_member_availability_df(start_date, end_date, schedule_member)
+    with st.spinner("내 일정 불러오는 중..."):
+        member_slots_data = load_member_availability(
+            schedule_member, start_date, end_date
+        )
+
+    if member_slots_data is None:
+        return
+
+    member_df = build_member_availability_df(
+        start_date, end_date, schedule_member, member_slots_data
+    )
 
     st.markdown(f"**{schedule_member}님의 가능 시간** · 행 = 시간, 열 = 날짜")
     edited_df = st.data_editor(
@@ -307,7 +352,11 @@ def render_schedule_tab() -> None:
         key=f"schedule_editor_{schedule_member}_{start_date}_{end_date}",
     )
 
-    save_member_availability_from_df(edited_df, schedule_member)
+    if not edited_df.astype(bool).equals(member_df.astype(bool)):
+        with st.spinner("저장 중..."):
+            ok = save_member_availability_from_df(edited_df, schedule_member)
+        if ok:
+            after_write()
 
     my_checked = int(edited_df.values.sum())
     st.caption(
