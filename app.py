@@ -316,7 +316,7 @@ def render_vote_tab() -> None:
 def render_schedule_tab() -> None:
     st.subheader("일정 조정")
     st.caption(
-        "본인 이름을 선택한 뒤 가능한 시간을 체크하세요. "
+        "본인 이름을 선택한 뒤 가능한 시간을 체크하고, **일정 저장** 버튼을 눌러주세요. "
         f"맨 아래 팀 요약 표에서 시간대별 가능 인원을 확인할 수 있습니다 ({TEAM_SIZE}명 기준)."
     )
 
@@ -372,19 +372,38 @@ def render_schedule_tab() -> None:
         key=f"schedule_editor_{schedule_member}_{start_date}_{end_date}",
     )
 
-    if not edited_df.astype(bool).equals(member_df.astype(bool)):
-        with st.spinner("저장 중..."):
+    has_changes = not edited_df.astype(bool).equals(member_df.astype(bool))
+    my_checked = int(edited_df.values.sum())
+
+    if has_changes:
+        changed_count = int((edited_df.astype(bool) != member_df.astype(bool)).values.sum())
+        st.warning(f"저장되지 않은 변경 {changed_count}칸이 있습니다. 아래 **일정 저장**을 눌러주세요.")
+
+    save_col, info_col = st.columns([1, 2])
+    with save_col:
+        save_clicked = st.button(
+            "일정 저장",
+            type="primary",
+            disabled=not has_changes,
+            use_container_width=True,
+            key=f"save_schedule_{schedule_member}_{start_date}_{end_date}",
+        )
+    with info_col:
+        st.caption(
+            f"{schedule_member}님이 체크한 칸: {my_checked}개 · "
+            "여러 칸을 연속으로 선택한 뒤 한 번에 저장할 수 있습니다."
+        )
+
+    if save_clicked:
+        with st.spinner(
+            "저장 중... 페이지를 닫거나 새로고침하지 마세요. 저장이 끝날 때까지 기다려 주세요."
+        ):
             ok = save_member_availability_from_df(
                 edited_df, member_df, schedule_member
             )
         if ok:
+            st.success("일정이 저장되었습니다.")
             after_write()
-
-    my_checked = int(edited_df.values.sum())
-    st.caption(
-        f"{schedule_member}님이 체크한 칸: {my_checked}개 · "
-        "변경 사항은 자동 저장됩니다."
-    )
 
     st.divider()
 
