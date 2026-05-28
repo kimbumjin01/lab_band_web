@@ -443,7 +443,7 @@ def inject_styles() -> None:
         }
 
         .sidebar-menu-label {
-            font-size: clamp(0.85rem, 3vw, 0.95rem) !important;
+            font-size: clamp(1rem, 3.8vw, 1.12rem) !important;
             color: #9b94b0 !important;
             text-transform: uppercase;
             letter-spacing: 0.12em;
@@ -453,6 +453,7 @@ def inject_styles() -> None:
 
         [data-testid="stSidebar"] .stRadio {
             flex: 1;
+            width: 100%;
         }
 
         [data-testid="stSidebar"] .stRadio > label {
@@ -461,6 +462,10 @@ def inject_styles() -> None:
 
         [data-testid="stSidebar"] .stRadio div[role="radiogroup"] {
             gap: clamp(0.65rem, 2.5vw, 1rem) !important;
+            width: 100% !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
         }
 
         [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"] {
@@ -469,12 +474,24 @@ def inject_styles() -> None:
             border-radius: 18px;
             padding: clamp(1.05rem, 4vw, 1.45rem) clamp(1.1rem, 4vw, 1.5rem) !important;
             margin-bottom: 0 !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            box-sizing: border-box !important;
+            display: flex !important;
+            align-items: center !important;
             min-height: 3.25rem;
             font-size: clamp(1.2rem, 4.8vw, 1.5rem) !important;
             font-weight: 650 !important;
             line-height: 1.35 !important;
             transition: all 0.22s ease;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+        }
+
+        [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"] > div:first-child {
+            flex: 1;
+            width: 100%;
         }
 
         [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"] > div,
@@ -504,7 +521,8 @@ def inject_styles() -> None:
 
         .sidebar-credit-wrap {
             margin-top: auto;
-            padding: 1.75rem 0.5rem 0.5rem;
+            padding: 2.25rem 0.5rem 0.25rem;
+            margin-bottom: 0.75rem;
             border-top: 1px solid rgba(255, 255, 255, 0.1);
             text-align: center;
         }
@@ -579,7 +597,7 @@ def main() -> None:
             """
             <div class="sidebar-credit-wrap">
                 <p class="sidebar-credit">
-                    <span class="credit-name">kbj110</span>이 만들었습니다
+                    Made by <span class="credit-name">@kbj110</span>
                 </p>
             </div>
             """,
