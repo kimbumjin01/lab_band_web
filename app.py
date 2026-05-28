@@ -7,7 +7,7 @@ import streamlit as st
 import db
 
 st.set_page_config(
-    page_title="LAB A팀 합주 관리",
+    page_title="LAB A team 합주 관리",
     page_icon="🎸",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -25,7 +25,7 @@ MEMBERS = [
     "유수연",
 ]
 
-MEMBER_COUNT = len(MEMBERS)
+TEAM_SIZE = 7
 
 MENU_OPTIONS = ["선곡 투표", "일정 조정", "합주실 예약"]
 MENU_ICONS = {
@@ -142,24 +142,51 @@ def build_member_availability_df(
     return pd.DataFrame(data, index=rows)
 
 
-def build_availability_summary_df(
+def build_availability_summary_dfs(
     start: date, end: date, all_availability: dict[str, dict[str, bool]]
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     _, columns = date_range_columns(start, end)
     rows = time_slots()
-    data = {}
+    display_data: dict[str, list[str]] = {}
+    ratio_data: dict[str, list[float]] = {}
 
     for col_label in columns:
         iso = st.session_state.schedule_col_iso[col_label]
-        data[col_label] = []
+        display_data[col_label] = []
+        ratio_data[col_label] = []
         for slot in rows:
             key = slot_key(iso, slot)
             count = sum(
                 1 for member in MEMBERS if all_availability.get(member, {}).get(key, False)
             )
-            data[col_label].append(f"{count}/{MEMBER_COUNT}")
+            ratio = min(count / TEAM_SIZE, 1.0)
+            display_data[col_label].append(f"{count}/{TEAM_SIZE}")
+            ratio_data[col_label].append(ratio)
 
-    return pd.DataFrame(data, index=rows)
+    display_df = pd.DataFrame(display_data, index=rows)
+    ratio_df = pd.DataFrame(ratio_data, index=rows)
+    return display_df, ratio_df
+
+
+def style_availability_summary(display_df: pd.DataFrame, ratio_df: pd.DataFrame):
+    def ratio_cell_style(ratio: float) -> str:
+        light = (238, 244, 255)
+        dark = (29, 78, 216)
+        r = int(light[0] + (dark[0] - light[0]) * ratio)
+        g = int(light[1] + (dark[1] - light[1]) * ratio)
+        b = int(light[2] + (dark[2] - light[2]) * ratio)
+        text = "#ffffff" if ratio >= 0.55 else "#1e293b"
+        weight = "700" if ratio >= 0.7 else "600"
+        return (
+            f"background-color: rgb({r}, {g}, {b}); "
+            f"color: {text}; font-weight: {weight}; text-align: center;"
+        )
+
+    def style_column(col: pd.Series) -> list[str]:
+        col_name = col.name
+        return [ratio_cell_style(ratio_df.loc[idx, col_name]) for idx in col.index]
+
+    return display_df.style.apply(style_column, axis=0)
 
 
 def save_member_availability_from_df(df: pd.DataFrame, member: str) -> bool:
@@ -278,7 +305,7 @@ def render_schedule_tab() -> None:
     st.subheader("일정 조정")
     st.caption(
         "본인 이름을 선택한 뒤 가능한 시간을 체크하세요. "
-        f"아래 요약 표에는 시간대별로 몇 명이 가능한지 ({MEMBER_COUNT}명 기준) 표시됩니다."
+        f"맨 아래 팀 요약 표에서 시간대별 가능 인원을 확인할 수 있습니다 ({TEAM_SIZE}명 기준)."
     )
 
     today = date.today()
@@ -304,25 +331,6 @@ def render_schedule_tab() -> None:
         MEMBERS,
         key="schedule_member",
     )
-
-    with st.spinner("팀 일정 불러오는 중..."):
-        all_availability = load_all_availability(start_date, end_date)
-
-    if all_availability is None:
-        return
-
-    summary_df = build_availability_summary_df(
-        start_date, end_date, all_availability
-    )
-
-    st.markdown("**팀 가능 인원 요약** · 각 칸 = `가능 인원 / 전체`")
-    st.dataframe(
-        summary_df,
-        use_container_width=True,
-        hide_index=False,
-    )
-
-    st.divider()
 
     with st.spinner("내 일정 불러오는 중..."):
         member_slots_data = load_member_availability(
@@ -362,6 +370,31 @@ def render_schedule_tab() -> None:
     st.caption(
         f"{schedule_member}님이 체크한 칸: {my_checked}개 · "
         "변경 사항은 자동 저장됩니다."
+    )
+
+    st.divider()
+
+    with st.spinner("팀 일정 불러오는 중..."):
+        all_availability = load_all_availability(start_date, end_date)
+
+    if all_availability is None:
+        return
+
+    summary_display_df, summary_ratio_df = build_availability_summary_dfs(
+        start_date, end_date, all_availability
+    )
+    styled_summary = style_availability_summary(
+        summary_display_df, summary_ratio_df
+    )
+
+    st.markdown(
+        f"**팀 가능 인원 요약** · 각 칸 = `가능 인원 / {TEAM_SIZE}` "
+        "(진할수록 가능 인원 비율이 높음)"
+    )
+    st.dataframe(
+        styled_summary,
+        use_container_width=True,
+        hide_index=False,
     )
 
 
@@ -579,7 +612,7 @@ def main() -> None:
         st.markdown(
             """
             <div class="sidebar-header-wrap">
-                <p class="sidebar-brand">LAB A팀</p>
+                <p class="sidebar-brand">LAB A team</p>
                 <p class="sidebar-tagline">합주 관리 웹서비스</p>
             </div>
             """,
@@ -604,7 +637,7 @@ def main() -> None:
             unsafe_allow_html=True,
         )
 
-    st.title("LAB A팀 합주 관리")
+    st.title("LAB A team 합주 관리")
 
     if selected_menu == "선곡 투표":
         render_vote_tab()
