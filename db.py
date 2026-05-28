@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 from typing import Any
 
@@ -5,6 +6,7 @@ import streamlit as st
 from supabase import Client, create_client
 
 DB_ERROR_MESSAGE = "DB 연결 오류"
+logger = logging.getLogger(__name__)
 
 
 @st.cache_resource
@@ -18,6 +20,7 @@ def _run_db(operation: str, fn: Any) -> Any:
     try:
         return fn()
     except Exception:
+        logger.exception("DB error during %s", operation)
         st.error(DB_ERROR_MESSAGE)
         return None
 
@@ -143,15 +146,24 @@ def get_all_availability(
 def upsert_availability(
     member: str, slot_date: date, slot_time: str, available: bool
 ) -> bool:
-    def _upsert() -> bool:
-        get_client().table("availability").upsert(
+    return upsert_availability_batch(
+        [
             {
                 "member": member,
                 "slot_date": slot_date.isoformat(),
                 "slot_time": slot_time,
                 "available": available,
             }
-        ).execute()
+        ]
+    )
+
+
+def upsert_availability_batch(rows: list[dict]) -> bool:
+    if not rows:
         return True
 
-    return _run_db("upsert_availability", _upsert) is True
+    def _upsert() -> bool:
+        get_client().table("availability").upsert(rows).execute()
+        return True
+
+    return _run_db("upsert_availability_batch", _upsert) is True

@@ -189,19 +189,31 @@ def style_availability_summary(display_df: pd.DataFrame, ratio_df: pd.DataFrame)
     return display_df.style.apply(style_column, axis=0)
 
 
-def save_member_availability_from_df(df: pd.DataFrame, member: str) -> bool:
+def save_member_availability_from_df(
+    edited_df: pd.DataFrame, original_df: pd.DataFrame, member: str
+) -> bool:
     col_iso = st.session_state.get("schedule_col_iso", {})
+    rows: list[dict] = []
 
-    for col_label in df.columns:
+    for col_label in edited_df.columns:
         iso = col_iso.get(col_label)
         if not iso:
             continue
-        slot_date = date.fromisoformat(iso)
-        for slot in df.index:
-            available = bool(df.loc[slot, col_label])
-            if not db.upsert_availability(member, slot_date, slot, available):
-                return False
-    return True
+        for slot in edited_df.index:
+            new_val = bool(edited_df.loc[slot, col_label])
+            old_val = bool(original_df.loc[slot, col_label])
+            if new_val == old_val:
+                continue
+            rows.append(
+                {
+                    "member": member,
+                    "slot_date": iso,
+                    "slot_time": slot,
+                    "available": new_val,
+                }
+            )
+
+    return db.upsert_availability_batch(rows)
 
 
 def render_vote_tab() -> None:
@@ -362,7 +374,9 @@ def render_schedule_tab() -> None:
 
     if not edited_df.astype(bool).equals(member_df.astype(bool)):
         with st.spinner("저장 중..."):
-            ok = save_member_availability_from_df(edited_df, schedule_member)
+            ok = save_member_availability_from_df(
+                edited_df, member_df, schedule_member
+            )
         if ok:
             after_write()
 
