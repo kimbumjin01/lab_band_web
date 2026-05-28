@@ -389,36 +389,138 @@ def inject_styles() -> None:
         }
 
         [data-testid="stSidebar"] {
-            background: linear-gradient(180deg, #1e1b2e 0%, #2d2640 55%, #1a1628 100%);
-            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            background: linear-gradient(
+                165deg,
+                #14121f 0%,
+                #231f35 42%,
+                #1a1728 100%
+            );
+            border-right: 1px solid rgba(167, 139, 250, 0.12);
+            box-shadow: 4px 0 32px rgba(15, 12, 30, 0.15);
+        }
+
+        [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
+            display: flex;
+            flex-direction: column;
+            min-height: calc(100vh - 4rem);
+            padding: 0.5rem 0.25rem 1.5rem;
         }
 
         [data-testid="stSidebar"] * {
-            color: #e8e4f0 !important;
+            color: #ece9f5 !important;
+        }
+
+        [data-testid="stSidebar"] hr {
+            margin: 1.25rem 0 1.5rem !important;
+            border-color: rgba(255, 255, 255, 0.12) !important;
+        }
+
+        .sidebar-header-wrap {
+            padding: 0.25rem 0.35rem 0.5rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .sidebar-brand {
+            font-size: clamp(2.35rem, 9vw, 3.4rem) !important;
+            font-weight: 800 !important;
+            letter-spacing: -0.04em;
+            margin: 0 0 0.5rem 0 !important;
+            line-height: 1.1 !important;
+            background: linear-gradient(125deg, #ffffff 0%, #ddd6fe 45%, #a78bfa 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            filter: drop-shadow(0 2px 12px rgba(167, 139, 250, 0.25));
+        }
+
+        .sidebar-tagline {
+            font-size: clamp(1.2rem, 4.5vw, 1.65rem) !important;
+            color: #c4bfd6 !important;
+            margin: 0 !important;
+            font-weight: 600 !important;
+            line-height: 1.4 !important;
+            letter-spacing: -0.02em;
+        }
+
+        .sidebar-menu-label {
+            font-size: clamp(0.85rem, 3vw, 0.95rem) !important;
+            color: #9b94b0 !important;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            font-weight: 700 !important;
+            margin: 0 0 1rem 0.35rem !important;
+        }
+
+        [data-testid="stSidebar"] .stRadio {
+            flex: 1;
         }
 
         [data-testid="stSidebar"] .stRadio > label {
             display: none;
         }
 
+        [data-testid="stSidebar"] .stRadio div[role="radiogroup"] {
+            gap: clamp(0.65rem, 2.5vw, 1rem) !important;
+        }
+
         [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"] {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 16px;
-            padding: 1.15rem 1.3rem !important;
-            margin-bottom: 0.9rem !important;
-            font-size: 1.18rem !important;
-            font-weight: 600;
-            transition: all 0.2s ease;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1.5px solid rgba(255, 255, 255, 0.12);
+            border-radius: 18px;
+            padding: clamp(1.05rem, 4vw, 1.45rem) clamp(1.1rem, 4vw, 1.5rem) !important;
+            margin-bottom: 0 !important;
+            min-height: 3.25rem;
+            font-size: clamp(1.2rem, 4.8vw, 1.5rem) !important;
+            font-weight: 650 !important;
+            line-height: 1.35 !important;
+            transition: all 0.22s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+        }
+
+        [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"] > div,
+        [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"] p,
+        [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"] span {
+            font-size: inherit !important;
+            font-weight: inherit !important;
+            line-height: inherit !important;
         }
 
         [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]:hover {
-            background: rgba(139, 92, 246, 0.2);
-            border-color: rgba(167, 139, 250, 0.4);
+            background: rgba(139, 92, 246, 0.22);
+            border-color: rgba(196, 181, 253, 0.45);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(124, 58, 237, 0.2);
         }
 
-        [data-testid="stSidebar"] .stRadio div[role="radiogroup"] {
-            gap: 0.35rem;
+        [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]:has(input:checked) {
+            background: linear-gradient(
+                135deg,
+                rgba(124, 58, 237, 0.55) 0%,
+                rgba(99, 102, 241, 0.4) 100%
+            ) !important;
+            border-color: rgba(196, 181, 253, 0.65) !important;
+            box-shadow: 0 8px 28px rgba(124, 58, 237, 0.35);
+        }
+
+        .sidebar-credit-wrap {
+            margin-top: auto;
+            padding: 1.75rem 0.5rem 0.5rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+        }
+
+        .sidebar-credit {
+            font-size: clamp(1rem, 3.8vw, 1.15rem) !important;
+            color: #8f879e !important;
+            margin: 0 !important;
+            font-weight: 500 !important;
+            line-height: 1.5 !important;
+        }
+
+        .sidebar-credit .credit-name {
+            color: #c4b5fd !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.02em;
         }
 
         h1 {
@@ -428,26 +530,6 @@ def inject_styles() -> None:
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-        }
-
-        .sidebar-brand {
-            font-size: 2.55rem;
-            font-weight: 800;
-            letter-spacing: -0.03em;
-            margin-bottom: 0.45rem;
-            line-height: 1.15;
-            background: linear-gradient(120deg, #fff 20%, #c4b5fd 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .sidebar-tagline {
-            font-size: 1.28rem !important;
-            color: #c9c5d8 !important;
-            margin-bottom: 2rem;
-            font-weight: 600;
-            line-height: 1.35;
         }
 
         [data-testid="stVideo"] {
@@ -476,17 +558,32 @@ def main() -> None:
     inject_styles()
 
     with st.sidebar:
-        st.markdown('<p class="sidebar-brand">LAB A팀</p>', unsafe_allow_html=True)
         st.markdown(
-            '<p class="sidebar-tagline">합주 관리 웹서비스</p>',
+            """
+            <div class="sidebar-header-wrap">
+                <p class="sidebar-brand">LAB A팀</p>
+                <p class="sidebar-tagline">합주 관리 웹서비스</p>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
         st.divider()
+        st.markdown('<p class="sidebar-menu-label">MENU</p>', unsafe_allow_html=True)
         selected_menu = st.radio(
             "메뉴",
             MENU_OPTIONS,
             format_func=lambda x: f"{MENU_ICONS[x]}  {x}",
             label_visibility="collapsed",
+        )
+        st.markdown(
+            """
+            <div class="sidebar-credit-wrap">
+                <p class="sidebar-credit">
+                    <span class="credit-name">kbj110</span>이 만들었습니다
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
     st.title("LAB A팀 합주 관리")
