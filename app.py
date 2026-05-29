@@ -252,23 +252,32 @@ def render_sidebar_auth() -> None:
     if selected != prev_user:
         st.session_state.authenticated_member = None
 
-    if is_member_selected():
-        password = st.text_input(
-            "비밀번호 입력",
-            type="password",
-            key="pw_input",
-            placeholder="비밀번호를 입력하세요",
-        )
-        if password:
+    # 항상 표시 (이름 선택 전에도)
+    password = st.text_input(
+        "비밀번호 입력",
+        type="password",
+        key="pw_input",
+        placeholder="비밀번호를 입력하세요",
+    )
+
+    if password:
+        if selected == NAME_PLACEHOLDER:
+            st.warning("이름을 먼저 선택해 주세요.")
+        else:
             passwords = dict(st.secrets.get("passwords", {}))
             expected = passwords.get(selected)
             if expected and password == expected:
                 st.session_state.authenticated_member = selected
             else:
+                st.session_state.authenticated_member = None
                 st.warning("비밀번호가 올바르지 않습니다.")
 
     if is_authenticated():
-        st.caption(f"로그인: **{st.session_state.authenticated_member}**")
+        st.markdown(
+            f"<p style='color:#a78bfa;font-weight:700;font-size:0.9rem;"
+            f"margin:0.5rem 0 0 0.2rem;'>✓ {authenticated_user()}님 로그인됨</p>",
+            unsafe_allow_html=True,
+        )
 
 
 def render_confirmed_schedules_banner() -> None:
@@ -529,30 +538,31 @@ def inject_styles() -> None:
             font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
         }
 
+        /* ── 메인 배경 ── */
         .stApp {
             background: linear-gradient(160deg, #f4f6fb 0%, #eef1f8 45%, #e8ecf4 100%);
         }
 
+        /* ── 사이드바 ── */
         [data-testid="stSidebar"] {
             visibility: visible !important;
             display: block !important;
             background: linear-gradient(165deg, #14121f 0%, #231f35 42%, #1a1728 100%);
             border-right: 1px solid rgba(167, 139, 250, 0.12);
         }
-
         [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
             display: flex;
             flex-direction: column;
             min-height: calc(100vh - 4rem);
             padding: 0.5rem 0.25rem 1.5rem;
         }
-
         [data-testid="stSidebar"] * { color: #ece9f5 !important; }
         [data-testid="stSidebar"] hr {
             margin: 1.25rem 0 1.5rem !important;
             border-color: rgba(255, 255, 255, 0.12) !important;
         }
 
+        /* ── 사이드바 헤더 ── */
         .sidebar-header-wrap { padding: 0.25rem 0.35rem 0.5rem; }
         .sidebar-brand {
             font-size: clamp(2.35rem, 9vw, 3.4rem) !important;
@@ -580,6 +590,7 @@ def inject_styles() -> None:
             margin: 0 0 1rem 0.35rem !important;
         }
 
+        /* ── 사이드바 메뉴 라디오 ── */
         [data-testid="stSidebar"] .stRadio { flex: 1; width: 100%; }
         [data-testid="stSidebar"] .stRadio > label { display: none; }
         [data-testid="stSidebar"] .stRadio div[role="radiogroup"] {
@@ -599,12 +610,18 @@ def inject_styles() -> None:
             min-height: 3.25rem;
             font-size: clamp(1.2rem, 4.8vw, 1.5rem) !important;
             font-weight: 650 !important;
+            transition: all 0.2s ease !important;
+        }
+        [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]:hover {
+            background: rgba(167, 139, 250, 0.15) !important;
+            border-color: rgba(167, 139, 250, 0.35) !important;
         }
         [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]:has(input:checked) {
             background: linear-gradient(135deg, rgba(124,58,237,0.55), rgba(99,102,241,0.4)) !important;
             border-color: rgba(196, 181, 253, 0.65) !important;
         }
 
+        /* ── 사이드바 크레딧 ── */
         .sidebar-credit-wrap {
             margin-top: auto;
             padding: 2.25rem 0.5rem 0.75rem;
@@ -621,8 +638,46 @@ def inject_styles() -> None:
             font-weight: 700 !important;
         }
 
+        /* ── 사이드바 입력창 가독성 ── */
+        [data-testid="stSidebar"] .stTextInput input {
+            color: #1e1a2e !important;
+            background-color: rgba(255, 255, 255, 0.93) !important;
+            border-radius: 10px !important;
+            border: 1.5px solid rgba(167, 139, 250, 0.3) !important;
+            font-weight: 500 !important;
+        }
+        [data-testid="stSidebar"] .stTextInput input::placeholder {
+            color: #9990b0 !important;
+        }
+        [data-testid="stSidebar"] .stTextInput label,
+        [data-testid="stSidebar"] .stSelectbox > label {
+            font-size: 0.8rem !important;
+            color: #a099bc !important;
+            font-weight: 600 !important;
+            letter-spacing: 0.06em !important;
+            text-transform: uppercase;
+        }
+        [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] > div {
+            background-color: rgba(255, 255, 255, 0.93) !important;
+            border-radius: 10px !important;
+            border: 1.5px solid rgba(167, 139, 250, 0.3) !important;
+        }
+        [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] span {
+            color: #1e1a2e !important;
+            font-weight: 500 !important;
+        }
+        [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] svg {
+            fill: #1e1a2e !important;
+        }
+        [data-testid="stSidebar"] .stAlert {
+            border-radius: 10px !important;
+            padding: 0.5rem 0.75rem !important;
+            font-size: 0.85rem !important;
+        }
+
+        /* ── 메인 제목 ── */
         h1 {
-            font-weight: 700 !important;
+            font-weight: 800 !important;
             letter-spacing: -0.03em;
             background: linear-gradient(120deg, #1e1b2e 0%, #5b21b6 50%, #6366f1 100%);
             -webkit-background-clip: text;
@@ -630,11 +685,107 @@ def inject_styles() -> None:
             background-clip: text;
         }
 
+        /* ── 메인 버튼 ── */
+        .stButton > button {
+            background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 12px !important;
+            font-weight: 600 !important;
+            font-size: 0.95rem !important;
+            transition: all 0.2s ease !important;
+            box-shadow: 0 2px 10px rgba(124, 58, 237, 0.25) !important;
+        }
+        .stButton > button:hover {
+            transform: translateY(-1px) !important;
+            box-shadow: 0 6px 20px rgba(124, 58, 237, 0.4) !important;
+        }
+        .stButton > button:active {
+            transform: translateY(0px) !important;
+        }
+
+        /* ── 곡 카드 ── */
+        [data-testid="stVerticalBlockBorderWrapper"] {
+            border-radius: 20px !important;
+            border: 1.5px solid rgba(139, 92, 246, 0.15) !important;
+            background: rgba(255, 255, 255, 0.82) !important;
+            box-shadow: 0 2px 16px rgba(30, 27, 46, 0.06) !important;
+            backdrop-filter: blur(8px) !important;
+            transition: box-shadow 0.2s ease !important;
+        }
+        [data-testid="stVerticalBlockBorderWrapper"]:hover {
+            box-shadow: 0 6px 28px rgba(124, 58, 237, 0.13) !important;
+        }
+
+        /* ── 메트릭 ── */
+        [data-testid="stMetric"] {
+            background: linear-gradient(135deg, #f5f3ff, #ede9fe) !important;
+            border-radius: 14px !important;
+            padding: 0.85rem 1rem !important;
+            border: 1px solid rgba(139, 92, 246, 0.18) !important;
+        }
+        [data-testid="stMetricValue"] {
+            color: #5b21b6 !important;
+            font-weight: 700 !important;
+        }
+        [data-testid="stMetricDelta"] svg { display: none !important; }
+
+        /* ── 익스팬더 ── */
+        [data-testid="stExpander"] {
+            border-radius: 16px !important;
+            border: 1.5px solid rgba(139, 92, 246, 0.15) !important;
+            background: rgba(255, 255, 255, 0.65) !important;
+            overflow: hidden !important;
+            box-shadow: 0 2px 10px rgba(30, 27, 46, 0.04) !important;
+        }
+
+        /* ── 메인 영역 입력창 ── */
+        .stTextInput input,
+        .stTextArea textarea {
+            border-radius: 12px !important;
+            border: 1.5px solid rgba(139, 92, 246, 0.2) !important;
+            background: rgba(255, 255, 255, 0.9) !important;
+            transition: border-color 0.2s, box-shadow 0.2s !important;
+        }
+        .stTextInput input:focus,
+        .stTextArea textarea:focus {
+            border-color: rgba(124, 58, 237, 0.5) !important;
+            box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.08) !important;
+        }
+
+        /* ── 메인 영역 셀렉트박스 ── */
+        .stSelectbox [data-baseweb="select"] > div {
+            border-radius: 12px !important;
+            border: 1.5px solid rgba(139, 92, 246, 0.2) !important;
+            background: rgba(255, 255, 255, 0.9) !important;
+        }
+
+        /* ── 폼 ── */
+        [data-testid="stForm"] {
+            border-radius: 20px !important;
+            border: 1.5px solid rgba(139, 92, 246, 0.13) !important;
+            background: rgba(255, 255, 255, 0.55) !important;
+            backdrop-filter: blur(6px) !important;
+            padding: 1.25rem !important;
+        }
+
+        /* ── 슬라이더 ── */
+        [data-testid="stSlider"] [role="slider"] {
+            background: #7c3aed !important;
+            border-color: #7c3aed !important;
+        }
+
+        /* ── 구분선 ── */
+        hr { border-color: rgba(139, 92, 246, 0.1) !important; }
+
+        /* ── 비디오 ── */
         [data-testid="stVideo"] { max-width: 320px; }
         [data-testid="stVideo"] iframe {
-            border-radius: 12px;
+            border-radius: 14px;
             box-shadow: 0 6px 24px rgba(30, 27, 46, 0.12);
         }
+
+        /* ── 링크 버튼 ── */
         .stLinkButton > a {
             padding: 1.1rem 1.25rem !important;
             font-size: 1.08rem !important;
