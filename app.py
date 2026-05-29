@@ -15,46 +15,11 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# 사이드바(왼쪽 메뉴)가 header 안 버튼에 의존하므로 header는 숨기지 않음
 hide_streamlit_style = """
 <style>
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
-[data-testid="stDecoration"] {display: none;}
-
-/* 데스크톱: 예전 방식 — header만 숨김 (사이드바 패널은 별도 영역이라 정상 표시) */
-@media (min-width: 769px) {
-    header[data-testid="stHeader"] {
-        visibility: hidden;
-        height: 0 !important;
-        min-height: 0 !important;
-    }
-    [data-testid="stSidebar"] {
-        visibility: visible !important;
-        transform: none !important;
-    }
-    [data-testid="stSidebar"] > div:first-child {
-        visibility: visible !important;
-    }
-}
-
-/* 모바일: header는 유지(≡ 메뉴), 툴바·워터마크만 숨김 */
-@media (max-width: 768px) {
-    header[data-testid="stHeader"] {
-        visibility: visible !important;
-        background: transparent;
-    }
-    [data-testid="stToolbar"] {
-        display: none;
-    }
-    [data-testid="stSidebarCollapsedControl"],
-    [data-testid="collapsedControl"],
-    button[data-testid="baseButton-header"] {
-        visibility: visible !important;
-        display: flex !important;
-        opacity: 1 !important;
-        z-index: 999990;
-    }
-}
 </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -512,6 +477,8 @@ def inject_styles() -> None:
         }
 
         [data-testid="stSidebar"] {
+            visibility: visible !important;
+            display: block !important;
             background: linear-gradient(165deg, #14121f 0%, #231f35 42%, #1a1728 100%);
             border-right: 1px solid rgba(167, 139, 250, 0.12);
         }
