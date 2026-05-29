@@ -12,13 +12,29 @@ st.set_page_config(
     page_title="LAB A팀 합주 관리",
     page_icon="🎸",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 hide_streamlit_style = """
 <style>
 #MainMenu {visibility: hidden;}
-header {visibility: hidden;}
 footer {visibility: hidden;}
+
+/* 툴바·워터마크만 숨김 — header 전체 숨기면 모바일 사이드바(≡) 버튼도 사라짐 */
+[data-testid="stToolbar"] {display: none;}
+[data-testid="stDecoration"] {display: none;}
+header[data-testid="stHeader"] {
+    background: transparent;
+}
+
+/* 모바일 사이드바 열기 버튼 항상 표시 */
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
+    visibility: visible !important;
+    display: flex !important;
+    opacity: 1 !important;
+    z-index: 999990;
+}
 </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -245,7 +261,9 @@ def render_login_required() -> None:
 
 
 def render_global_identity_block() -> None:
-    st.info("앱을 사용하기 전에 반드시 본인의 이름을 먼저 선택해 주세요.")
+    if not is_member_selected():
+        st.info("앱을 사용하기 전에 반드시 본인의 이름을 먼저 선택해 주세요.")
+
     prev_user = st.session_state.get("global_user", NAME_PLACEHOLDER)
     selected = st.selectbox(
         "이름 선택",
@@ -404,15 +422,19 @@ def render_schedule_tab() -> None:
 
     dates_payload = dates_for_component(start_date, end_date)
     times_payload = time_slots()
-    selected_payload = {k: v for k, v in member_slots.items() if v}
+    selected_payload = {k: bool(v) for k, v in member_slots.items() if v}
 
     st.markdown(f"**{user}님의 가능 시간** · 드래그로 선택")
+
+    if not dates_payload:
+        st.warning("선택한 일정 범위에 날짜가 없습니다.")
+        return
+
     component_key = f"drag_{user}_{start_date}_{end_date}"
     component_result = drag_schedule_timetable(
         dates=dates_payload,
         times=times_payload,
         selected=selected_payload,
-        height=min(900, 160 + len(times_payload) * 36),
         key=component_key,
     )
 
