@@ -39,7 +39,6 @@ MEMBER_OPTIONS = [
 ]
 ACTUAL_MEMBERS = [m for m in MEMBER_OPTIONS if m != NAME_PLACEHOLDER]
 TEAM_LEADER = "김범진"
-LEADER_PASSWORD = "4883"
 TEAM_SIZE = 7
 
 MENU_OPTIONS = ["선곡 투표", "일정 조정", "합주실 예약"]
@@ -64,8 +63,8 @@ PRACTICE_ROOMS = [
 def init_session_state() -> None:
     if "schedule_col_iso" not in st.session_state:
         st.session_state.schedule_col_iso = {}
-    if "leader_authenticated" not in st.session_state:
-        st.session_state.leader_authenticated = False
+    if "authenticated_member" not in st.session_state:
+        st.session_state.authenticated_member = None
     if "global_user" not in st.session_state:
         st.session_state.global_user = NAME_PLACEHOLDER
 
@@ -74,19 +73,20 @@ def is_member_selected() -> bool:
     return st.session_state.get("global_user", NAME_PLACEHOLDER) != NAME_PLACEHOLDER
 
 
-def current_user() -> str:
-    return st.session_state.get("global_user", NAME_PLACEHOLDER)
+def is_authenticated() -> bool:
+    return bool(st.session_state.get("authenticated_member"))
 
 
-def is_leader_authenticated() -> bool:
-    return (
-        current_user() == TEAM_LEADER
-        and st.session_state.get("leader_authenticated", False)
-    )
+def is_admin() -> bool:
+    return st.session_state.get("authenticated_member") == TEAM_LEADER
+
+
+def authenticated_user() -> str | None:
+    return st.session_state.get("authenticated_member")
 
 
 def can_view_scores() -> bool:
-    return is_leader_authenticated()
+    return is_admin()
 
 
 def slot_key(iso_date: str, time_slot: str) -> str:
@@ -242,47 +242,72 @@ def save_slots_to_db(
 
 
 def render_login_required() -> None:
-    st.warning("화면을 이용하려면 상단에서 본인의 이름을 먼저 선택해 주세요.")
+    st.warning("로그인 후 이용할 수 있습니다.")
 
 
-def render_global_identity_block() -> None:
-    if not is_member_selected():
-        st.info("앱을 사용하기 전에 반드시 본인의 이름을 먼저 선택해 주세요.")
-
+def render_sidebar_auth() -> None:
     prev_user = st.session_state.get("global_user", NAME_PLACEHOLDER)
-    selected = st.selectbox(
-        "이름 선택",
-        MEMBER_OPTIONS,
-        key="global_user",
-        label_visibility="collapsed",
-    )
-    if selected != prev_user:
-        st.session_state.leader_authenticated = False
+    selected = st.selectbox("이름 선택", MEMBER_OPTIONS, key="global_user")
 
-    if selected == TEAM_LEADER:
-        password = st.text_input(
-            "팀장 비밀번호 입력",
-            type="password",
-            key="leader_password_input",
-            placeholder="비밀번호를 입력하세요",
-        )
-        if password == LEADER_PASSWORD:
-            st.session_state.leader_authenticated = True
-            st.success("팀장 인증 성공")
-        elif password:
-            st.session_state.leader_authenticated = False
-            st.error("비밀번호가 올바르지 않습니다.")
+    if selected != prev_user:
+        st.session_state.authenticated_member = None
 
     if is_member_selected():
-        st.caption(f"현재 사용자: **{selected}**")
+        password = st.text_input(
+            "비밀번호 입력",
+            type="password",
+            key="pw_input",
+            placeholder="비밀번호를 입력하세요",
+        )
+        if password:
+            passwords = dict(st.secrets.get("passwords", {}))
+            expected = passwords.get(selected)
+            if expected and password == expected:
+                st.session_state.authenticated_member = selected
+            else:
+                st.warning("비밀번호가 올바르지 않습니다.")
+
+    if is_authenticated():
+        st.caption(f"로그인: **{st.session_state.authenticated_member}**")
+
+
+def render_confirmed_schedules_banner() -> None:
+    schedules = db.get_confirmed_schedules()
+    if not schedules:
+        return
+
+    latest = schedules[0]
+    date_str = latest["schedule_date"]
+    st.success(
+        f"📌 **다음 합주:** {date_str}  "
+        f"{latest['start_time']} ~ {latest['end_time']}"
+        + (f"  · {latest['note']}" if latest.get("note") else "")
+    )
+
+    with st.expander(f"전체 확정 일정 보기 ({len(schedules)}건)", expanded=False):
+        for s in schedules:
+            col1, col2 = st.columns([5, 1])
+            with col1:
+                st.markdown(
+                    f"**{s['schedule_date']}**  "
+                    f"{s['start_time']} ~ {s['end_time']}"
+                    + (f"  · {s.get('note', '')}" if s.get("note") else "")
+                )
+            with col2:
+                if is_admin():
+                    if st.button("삭제", key=f"del_sched_{s['id']}"):
+                        if db.delete_confirmed_schedule(int(s["id"])):
+                            st.cache_data.clear()
+                            st.rerun()
+        st.divider()
 
 
 def render_vote_tab() -> None:
-    if not is_member_selected():
+    if not is_authenticated():
         render_login_required()
         return
 
-    user = current_user()
+    user = authenticated_user()
     st.subheader("선곡 투표")
     st.caption(f"{user}님, 곡을 추가하고 1~5점으로 투표해 보세요.")
 
@@ -299,6 +324,12 @@ def render_vote_tab() -> None:
                 "유튜브 링크",
                 placeholder="https://www.youtube.com/watch?v=...",
             )
+            notes = st.text_area(
+                "특이사항/비고",
+                placeholder="예: 원키 말고 반키 낮춰서, 일렉 솔로 주의 등",
+                max_chars=200,
+                height=80,
+            )
             submitted = st.form_submit_button("목록에 추가", use_container_width=True)
             if submitted:
                 if not title.strip():
@@ -311,6 +342,7 @@ def render_vote_tab() -> None:
                             title.strip(),
                             youtube_embed_url(youtube_url),
                             user,
+                            notes,
                         )
                     if ok:
                         st.success(f"{user}님이 「{title.strip()}」을(를) 추가했습니다.")
@@ -337,6 +369,8 @@ def render_vote_tab() -> None:
             with header_col:
                 st.markdown(f"### {song['title']}")
                 st.caption(f"등록: **{uploader}**")
+                if song.get("notes"):
+                    st.caption(f"📝 {song['notes']}")
             with score_col:
                 if can_view_scores():
                     if avg is not None:
@@ -344,7 +378,7 @@ def render_vote_tab() -> None:
                     else:
                         st.metric("평균 점수", "—", "투표 없음")
                 else:
-                    st.metric("평균 점수", "? / 5", "팀장 인증 후 공개")
+                    st.metric("평균 점수", "? / 5", "팀장 로그인 후 공개")
 
             video_col, vote_col = st.columns([1.1, 1])
             with video_col:
@@ -373,11 +407,11 @@ def render_vote_tab() -> None:
 
 
 def render_schedule_tab() -> None:
-    if not is_member_selected():
+    if not is_authenticated():
         render_login_required()
         return
 
-    user = current_user()
+    user = authenticated_user()
     st.subheader("일정 조정")
     st.caption(
         f"{user}님, 드래그로 가능한 시간을 선택한 뒤 표 하단 **저장하기**를 눌러주세요. "
@@ -452,6 +486,29 @@ def render_schedule_tab() -> None:
         "(진할수록 가능 인원 비율이 높음)"
     )
     st.dataframe(styled_summary, use_container_width=True, hide_index=False)
+
+    if is_admin():
+        st.divider()
+        st.markdown("### 📌 합주 일정 확정")
+        with st.form("confirm_schedule_form", clear_on_submit=True):
+            sched_date = st.date_input("날짜")
+            col1, col2 = st.columns(2)
+            with col1:
+                start_t = st.selectbox(
+                    "시작", [f"{h:02d}:00" for h in range(10, 23)]
+                )
+            with col2:
+                end_t = st.selectbox(
+                    "종료", [f"{h:02d}:00" for h in range(11, 24)]
+                )
+            note_input = st.text_input("비고 (선택)")
+            if st.form_submit_button("확정 공지 등록", use_container_width=True):
+                if db.add_confirmed_schedule(
+                    sched_date.isoformat(), start_t, end_t, note_input
+                ):
+                    st.cache_data.clear()
+                    st.toast("합주 일정이 등록되었습니다!")
+                    st.rerun()
 
 
 def render_booking_tab() -> None:
@@ -604,6 +661,7 @@ def main() -> None:
             """,
             unsafe_allow_html=True,
         )
+        render_sidebar_auth()
         st.divider()
         st.markdown('<p class="sidebar-menu-label">MENU</p>', unsafe_allow_html=True)
         selected_menu = st.radio(
@@ -622,7 +680,7 @@ def main() -> None:
         )
 
     st.title("LAB A팀 합주 관리")
-    render_global_identity_block()
+    render_confirmed_schedules_banner()
     st.divider()
 
     if selected_menu == "선곡 투표":

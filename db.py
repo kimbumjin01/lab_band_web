@@ -30,7 +30,7 @@ def get_all_songs() -> list[dict] | None:
         response = (
             get_client()
             .table("songs")
-            .select("id, title, youtube_url, uploaded_by, created_at")
+            .select("id, title, youtube_url, uploaded_by, notes, created_at")
             .order("created_at", desc=True)
             .execute()
         )
@@ -43,13 +43,16 @@ def get_all_songs() -> list[dict] | None:
     return result if result is not None else None
 
 
-def add_song(title: str, youtube_url: str, uploaded_by: str) -> bool:
+def add_song(
+    title: str, youtube_url: str, uploaded_by: str, notes: str = ""
+) -> bool:
     def _insert() -> bool:
         get_client().table("songs").insert(
             {
                 "title": title,
                 "youtube_url": youtube_url,
                 "uploaded_by": uploaded_by,
+                "notes": notes.strip() or None,
             }
         ).execute()
         return True
@@ -167,3 +170,44 @@ def upsert_availability_batch(rows: list[dict]) -> bool:
         return True
 
     return _run_db("upsert_availability_batch", _upsert) is True
+
+
+@st.cache_data(ttl=30)
+def get_confirmed_schedules() -> list[dict] | None:
+    def _fetch() -> list[dict]:
+        response = (
+            get_client()
+            .table("confirmed_schedules")
+            .select("id, schedule_date, start_time, end_time, note, created_at")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return response.data or []
+
+    result = _run_db("get_confirmed_schedules", _fetch)
+    return result if result is not None else None
+
+
+def add_confirmed_schedule(
+    schedule_date: str, start_time: str, end_time: str, note: str
+) -> bool:
+    def _insert() -> bool:
+        get_client().table("confirmed_schedules").insert(
+            {
+                "schedule_date": schedule_date,
+                "start_time": start_time,
+                "end_time": end_time,
+                "note": note.strip() or None,
+            }
+        ).execute()
+        return True
+
+    return _run_db("add_confirmed_schedule", _insert) is True
+
+
+def delete_confirmed_schedule(schedule_id: int) -> bool:
+    def _delete() -> bool:
+        get_client().table("confirmed_schedules").delete().eq("id", schedule_id).execute()
+        return True
+
+    return _run_db("delete_confirmed_schedule", _delete) is True
