@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 8px 4px 12px;
+      font-family: "Pretendard", -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #f8fafc;
+      color: #1e293b;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    .hint {
+      font-size: 0.9rem;
+      color: #64748b;
+      margin: 0 0 0.75rem;
+      line-height: 1.45;
+    }
+    .empty-msg {
+      padding: 2rem 1rem;
+      text-align: center;
+      color: #64748b;
+      font-size: 0.95rem;
+      display: none;
+    }
+    .wrap {
+      overflow: auto;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      background: #fff;
+      max-height: 58vh;
+      min-height: 120px;
+      -webkit-overflow-scrolling: touch;
+    }
+    table {
+      border-collapse: collapse;
+      min-width: max-content;
+    }
+    th, td {
+      border: 1px solid #e2e8f0;
+      text-align: center;
+      font-size: 0.72rem;
+      padding: 0;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #f1f5f9;
+      font-weight: 700;
+      padding: 0.45rem 0.35rem;
+      white-space: nowrap;
+    }
+    th.time-col, td.time-col {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+      background: #f8fafc;
+      font-weight: 600;
+      min-width: 3.2rem;
+      padding: 0.35rem;
+    }
+    th.corner { z-index: 3; left: 0; top: 0; }
+    td.cell {
+      width: 2.35rem;
+      min-width: 2.35rem;
+      height: 2rem;
+      cursor: pointer;
+      background: #fff;
+      touch-action: none;
+    }
+    td.cell.on {
+      background: #3b82f6;
+      box-shadow: inset 0 0 0 1px #2563eb;
+    }
+    .footer {
+      margin-top: 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+    }
+    .count { font-size: 0.9rem; color: #475569; flex: 1; }
+    button.save {
+      background: linear-gradient(135deg, #5b21b6, #4f46e5);
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      padding: 0.85rem 1.5rem;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      min-width: 8rem;
+    }
+    button.save:active { transform: scale(0.98); }
+  </style>
+</head>
+<body>
+  <p class="hint">손가락이나 마우스로 쓸어서 가능한 시간을 선택하세요. 파란 칸이 가능 시간입니다.</p>
+  <p class="empty-msg" id="emptyMsg">일정 표를 불러오는 중이거나 날짜 범위가 비어 있습니다.</p>
+  <div class="wrap" id="tableWrap"></div>
+  <div class="footer">
+    <span class="count" id="countLabel">선택 0칸</span>
+    <button type="button" class="save" id="saveBtn">저장하기</button>
+  </div>
+  <script>
+    /*__BOOTSTRAP__*/
+
+    let dates = [];
+    let times = [];
+    let selected = {};
+    let isDragging = false;
+    let paintValue = true;
+
+    function sendMessage(msg) {
+      window.parent.postMessage(Object.assign({ isStreamlitMessage: true }, msg), "*");
+    }
+
+    function setFrameHeight(h) {
+      sendMessage({ type: "streamlit:setFrameHeight", height: Math.max(h, 320) });
+    }
+
+    function setComponentValue(value) {
+      sendMessage({ type: "streamlit:setComponentValue", value: value });
+    }
+
+    function key(dateIso, time) {
+      return dateIso + "|" + time;
+    }
+
+    function updateCount() {
+      const n = Object.values(selected).filter(Boolean).length;
+      document.getElementById("countLabel").textContent = "선택 " + n + "칸";
+    }
+
+    function setCell(dateIso, time, on) {
+      const k = key(dateIso, time);
+      if (on) selected[k] = true;
+      else delete selected[k];
+    }
+
+    function isOn(dateIso, time) {
+      return !!selected[key(dateIso, time)];
+    }
+
+    function applyPaint(dateIso, time) {
+      setCell(dateIso, time, paintValue);
+      const el = document.querySelector(
+        'td.cell[data-date="' + dateIso + '"][data-time="' + time + '"]'
+      );
+      if (el) el.classList.toggle("on", paintValue);
+      updateCount();
+    }
+
+    function buildTable() {
+      const wrap = document.getElementById("tableWrap");
+      const emptyMsg = document.getElementById("emptyMsg");
+
+      if (!dates.length || !times.length) {
+        wrap.innerHTML = "";
+        emptyMsg.style.display = "block";
+        setFrameHeight(220);
+        return;
+      }
+
+      emptyMsg.style.display = "none";
+      let html = '<table><thead><tr><th class="corner time-col">시간</th>';
+      dates.forEach(function (d) {
+        html += "<th>" + d.label + "</th>";
+      });
+      html += "</tr></thead><tbody>";
+      times.forEach(function (t) {
+        html += '<tr><td class="time-col">' + t + "</td>";
+        dates.forEach(function (d) {
+          const on = isOn(d.iso, t);
+          html +=
+            '<td class="cell' +
+            (on ? " on" : "") +
+            '" data-date="' +
+            d.iso +
+            '" data-time="' +
+            t +
+            '"></td>';
+        });
+        html += "</tr>";
+      });
+      html += "</tbody></table>";
+      wrap.innerHTML = html;
+
+      wrap.querySelectorAll("td.cell").forEach(function (cell) {
+        function start(e) {
+          e.preventDefault();
+          isDragging = true;
+          const d = cell.dataset.date;
+          const t = cell.dataset.time;
+          paintValue = !isOn(d, t);
+          applyPaint(d, t);
+        }
+        function enter(e) {
+          if (!isDragging) return;
+          e.preventDefault();
+          applyPaint(cell.dataset.date, cell.dataset.time);
+        }
+        cell.addEventListener("mousedown", start);
+        cell.addEventListener("mouseenter", enter);
+        cell.addEventListener(
+          "touchstart",
+          function (e) { start(e); },
+          { passive: false }
+        );
+        cell.addEventListener(
+          "touchmove",
+          function (e) {
+            if (!isDragging) return;
+            e.preventDefault();
+            const touch = e.touches[0];
+            const target = document.elementFromPoint(touch.clientX, touch.clientY);
+            if (target && target.classList.contains("cell")) {
+              applyPaint(target.dataset.date, target.dataset.time);
+            }
+          },
+          { passive: false }
+        );
+      });
+
+      document.addEventListener("mouseup", function () { isDragging = false; });
+      document.addEventListener("touchend", function () { isDragging = false; });
+
+      updateCount();
+      setFrameHeight(130 + times.length * 36 + 90);
+    }
+
+    function renderFromArgs(args) {
+      args = args || {};
+      dates = args.dates || [];
+      times = args.times || [];
+      selected = Object.assign({}, args.selected || {});
+      buildTable();
+    }
+
+    window.addEventListener("message", function (event) {
+      const data = event.data;
+      if (!data || !data.isStreamlitMessage) return;
+      if (data.type === "streamlit:render" && data.args) {
+        renderFromArgs(data.args);
+      }
+    });
+
+    document.getElementById("saveBtn").addEventListener("click", function () {
+      setComponentValue({ action: "save", slots: selected });
+    });
+
+    if (typeof __BOOTSTRAP__ !== "undefined") {
+      renderFromArgs(__BOOTSTRAP__);
+    }
+
+    sendMessage({ type: "streamlit:componentReady", apiVersion: 1 });
+  </script>
+</body>
+</html>
