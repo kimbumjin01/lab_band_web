@@ -591,7 +591,7 @@ def inject_styles() -> None:
         }
 
         /* ── 사이드바 메뉴 라디오 ── */
-        [data-testid="stSidebar"] .stRadio { flex: 1; width: 100%; }
+        [data-testid="stSidebar"] .stRadio { flex: 1; width: 100%; padding: 0 !important; }
         [data-testid="stSidebar"] .stRadio > label { display: none; }
         [data-testid="stSidebar"] .stRadio div[role="radiogroup"] {
             gap: clamp(0.65rem, 2.5vw, 1rem) !important;
@@ -599,16 +599,17 @@ def inject_styles() -> None:
             display: flex !important;
             flex-direction: column !important;
             align-items: stretch !important;
+            padding: 0 !important;
         }
         [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"] {
             background: rgba(255, 255, 255, 0.06);
             border: 1.5px solid rgba(255, 255, 255, 0.12);
             border-radius: 18px;
-            padding: clamp(1.05rem, 4vw, 1.45rem) clamp(1.1rem, 4vw, 1.5rem) !important;
+            padding: clamp(1.15rem, 4.5vw, 1.6rem) clamp(1.3rem, 5vw, 1.75rem) !important;
             width: 100% !important;
             box-sizing: border-box !important;
-            min-height: 3.25rem;
-            font-size: clamp(1.2rem, 4.8vw, 1.5rem) !important;
+            min-height: 3.5rem;
+            font-size: clamp(1.35rem, 5.5vw, 1.65rem) !important;
             font-weight: 650 !important;
             transition: all 0.2s ease !important;
         }
@@ -662,12 +663,15 @@ def inject_styles() -> None:
             border-radius: 10px !important;
             border: 1.5px solid rgba(167, 139, 250, 0.3) !important;
         }
-        [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] span {
-            color: #1e1a2e !important;
+        [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] span,
+        [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] div,
+        [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] input,
+        [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] p {
+            color: #2d1f4e !important;
             font-weight: 500 !important;
         }
         [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] svg {
-            fill: #1e1a2e !important;
+            fill: #2d1f4e !important;
         }
         [data-testid="stSidebar"] .stAlert {
             border-radius: 10px !important;
