@@ -1,3 +1,4 @@
+import json
 from datetime import date, timedelta
 from urllib.parse import parse_qs, urlparse
 
@@ -5,26 +6,39 @@ import pandas as pd
 import streamlit as st
 
 import db
+from schedule_timetable import drag_schedule_timetable
 
 st.set_page_config(
-    page_title="LAB A team 합주 관리",
+    page_title="LAB A팀 합주 관리",
     page_icon="🎸",
     layout="wide",
-    initial_sidebar_state="expanded",
 )
 
-MEMBERS = [
+hide_streamlit_style = """
+<style>
+#MainMenu {visibility: hidden;}
+header {visibility: hidden;}
+footer {visibility: hidden;}
+</style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+NAME_PLACEHOLDER = "-- 이름을 선택하세요 --"
+MEMBER_OPTIONS = [
+    NAME_PLACEHOLDER,
     "김범진",
     "이해진",
     "김해찬",
     "권우현",
+    "박연수",
     "박준서",
-    "최주혁",
     "정지원",
     "성민수",
     "유수연",
 ]
-
+ACTUAL_MEMBERS = [m for m in MEMBER_OPTIONS if m != NAME_PLACEHOLDER]
+TEAM_LEADER = "김범진"
+LEADER_PASSWORD = "4883"
 TEAM_SIZE = 7
 
 MENU_OPTIONS = ["선곡 투표", "일정 조정", "합주실 예약"]
@@ -49,6 +63,29 @@ PRACTICE_ROOMS = [
 def init_session_state() -> None:
     if "schedule_col_iso" not in st.session_state:
         st.session_state.schedule_col_iso = {}
+    if "leader_authenticated" not in st.session_state:
+        st.session_state.leader_authenticated = False
+    if "global_user" not in st.session_state:
+        st.session_state.global_user = NAME_PLACEHOLDER
+
+
+def is_member_selected() -> bool:
+    return st.session_state.get("global_user", NAME_PLACEHOLDER) != NAME_PLACEHOLDER
+
+
+def current_user() -> str:
+    return st.session_state.get("global_user", NAME_PLACEHOLDER)
+
+
+def is_leader_authenticated() -> bool:
+    return (
+        current_user() == TEAM_LEADER
+        and st.session_state.get("leader_authenticated", False)
+    )
+
+
+def can_view_scores() -> bool:
+    return is_leader_authenticated()
 
 
 def slot_key(iso_date: str, time_slot: str) -> str:
@@ -106,8 +143,7 @@ def youtube_embed_url(url: str) -> str:
 def song_average(votes: dict[str, int]) -> float | None:
     if not votes:
         return None
-    scores = list(votes.values())
-    return sum(scores) / len(scores)
+    return sum(votes.values()) / len(votes)
 
 
 def time_slots() -> list[str]:
@@ -128,18 +164,9 @@ def date_range_columns(start: date, end: date) -> tuple[list[date], list[str]]:
     return dates, columns
 
 
-def build_member_availability_df(
-    start: date, end: date, member: str, slots: dict[str, bool]
-) -> pd.DataFrame:
-    _, columns = date_range_columns(start, end)
-    rows = time_slots()
-    data = {}
-
-    for col_label in columns:
-        iso = st.session_state.schedule_col_iso[col_label]
-        data[col_label] = [bool(slots.get(slot_key(iso, slot), False)) for slot in rows]
-
-    return pd.DataFrame(data, index=rows)
+def dates_for_component(start: date, end: date) -> list[dict]:
+    dates, _ = date_range_columns(start, end)
+    return [{"iso": d.isoformat(), "label": date_column_label(d)} for d in dates]
 
 
 def build_availability_summary_dfs(
@@ -157,15 +184,15 @@ def build_availability_summary_dfs(
         for slot in rows:
             key = slot_key(iso, slot)
             count = sum(
-                1 for member in MEMBERS if all_availability.get(member, {}).get(key, False)
+                1
+                for member in ACTUAL_MEMBERS
+                if all_availability.get(member, {}).get(key, False)
             )
             ratio = min(count / TEAM_SIZE, 1.0)
             display_data[col_label].append(f"{count}/{TEAM_SIZE}")
             ratio_data[col_label].append(ratio)
 
-    display_df = pd.DataFrame(display_data, index=rows)
-    ratio_df = pd.DataFrame(ratio_data, index=rows)
-    return display_df, ratio_df
+    return pd.DataFrame(display_data, index=rows), pd.DataFrame(ratio_data, index=rows)
 
 
 def style_availability_summary(display_df: pd.DataFrame, ratio_df: pd.DataFrame):
@@ -189,53 +216,87 @@ def style_availability_summary(display_df: pd.DataFrame, ratio_df: pd.DataFrame)
     return display_df.style.apply(style_column, axis=0)
 
 
-def save_member_availability_from_df(
-    edited_df: pd.DataFrame, original_df: pd.DataFrame, member: str
+def save_slots_to_db(
+    member: str, new_slots: dict, old_slots: dict[str, bool]
 ) -> bool:
-    col_iso = st.session_state.get("schedule_col_iso", {})
+    """컴포넌트에서 받은 slots JSON을 Supabase에 배치 저장."""
     rows: list[dict] = []
-
-    for col_label in edited_df.columns:
-        iso = col_iso.get(col_label)
-        if not iso:
+    for key, available in new_slots.items():
+        if "|" not in key:
             continue
-        for slot in edited_df.index:
-            new_val = bool(edited_df.loc[slot, col_label])
-            old_val = bool(original_df.loc[slot, col_label])
-            if new_val == old_val:
-                continue
-            rows.append(
-                {
-                    "member": member,
-                    "slot_date": iso,
-                    "slot_time": slot,
-                    "available": new_val,
-                }
-            )
-
+        iso, slot_time = key.split("|", 1)
+        new_val = bool(available)
+        old_val = bool(old_slots.get(key, False))
+        if new_val == old_val:
+            continue
+        rows.append(
+            {
+                "member": member,
+                "slot_date": iso,
+                "slot_time": slot_time,
+                "available": new_val,
+            }
+        )
     return db.upsert_availability_batch(rows)
 
 
+def render_login_required() -> None:
+    st.warning("화면을 이용하려면 상단에서 본인의 이름을 먼저 선택해 주세요.")
+
+
+def render_global_identity_block() -> None:
+    st.info("앱을 사용하기 전에 반드시 본인의 이름을 먼저 선택해 주세요.")
+    prev_user = st.session_state.get("global_user", NAME_PLACEHOLDER)
+    selected = st.selectbox(
+        "이름 선택",
+        MEMBER_OPTIONS,
+        key="global_user",
+        label_visibility="collapsed",
+    )
+    if selected != prev_user:
+        st.session_state.leader_authenticated = False
+
+    if selected == TEAM_LEADER:
+        password = st.text_input(
+            "팀장 비밀번호 입력",
+            type="password",
+            key="leader_password_input",
+            placeholder="비밀번호를 입력하세요",
+        )
+        if password == LEADER_PASSWORD:
+            st.session_state.leader_authenticated = True
+            st.success("팀장 인증 성공")
+        elif password:
+            st.session_state.leader_authenticated = False
+            st.error("비밀번호가 올바르지 않습니다.")
+
+    if is_member_selected():
+        st.caption(f"현재 사용자: **{selected}**")
+
+
 def render_vote_tab() -> None:
+    if not is_member_selected():
+        render_login_required()
+        return
+
+    user = current_user()
     st.subheader("선곡 투표")
-    st.caption("곡을 추가하고, 팀원별로 1~5점을 투표해 보세요.")
+    st.caption(f"{user}님, 곡을 추가하고 1~5점으로 투표해 보세요.")
 
     with st.spinner("곡 목록 불러오는 중..."):
         songs = load_songs()
-
     if songs is None:
         return
 
     with st.expander("곡 추가", expanded=len(songs) == 0):
         with st.form("add_song_form", clear_on_submit=True):
-            uploader = st.selectbox("등록자 (본인 이름)", MEMBERS)
+            st.caption(f"등록자: **{user}** (상단에서 선택한 이름)")
             title = st.text_input("곡 제목", placeholder="예: 봄날")
             youtube_url = st.text_input(
                 "유튜브 링크",
                 placeholder="https://www.youtube.com/watch?v=...",
             )
             submitted = st.form_submit_button("목록에 추가", use_container_width=True)
-
             if submitted:
                 if not title.strip():
                     st.warning("곡 제목을 입력해 주세요.")
@@ -246,22 +307,17 @@ def render_vote_tab() -> None:
                         ok = db.add_song(
                             title.strip(),
                             youtube_embed_url(youtube_url),
-                            uploader,
+                            user,
                         )
                     if ok:
-                        st.success(
-                            f"{uploader}님이 「{title.strip()}」을(를) 추가했습니다."
-                        )
+                        st.success(f"{user}님이 「{title.strip()}」을(를) 추가했습니다.")
                         after_write()
 
     if not songs:
         st.info("아직 등록된 곡이 없습니다. 위 폼에서 곡을 추가해 주세요.")
         return
 
-    voter = st.selectbox("투표자 (본인 이름)", MEMBERS, key="vote_member")
-
     st.divider()
-
     for song in songs:
         song_id = int(song["id"])
         votes = load_votes(song_id)
@@ -271,6 +327,7 @@ def render_vote_tab() -> None:
         avg = song_average(votes)
         vote_count = len(votes)
         uploader = song.get("uploaded_by", "미상")
+        my_score = votes.get(user)
 
         with st.container(border=True):
             header_col, score_col = st.columns([3, 1])
@@ -278,58 +335,60 @@ def render_vote_tab() -> None:
                 st.markdown(f"### {song['title']}")
                 st.caption(f"등록: **{uploader}**")
             with score_col:
-                if avg is not None:
-                    st.metric("평균 점수", f"{avg:.1f} / 5", f"{vote_count}명 투표")
+                if can_view_scores():
+                    if avg is not None:
+                        st.metric("평균 점수", f"{avg:.1f} / 5", f"{vote_count}명 투표")
+                    else:
+                        st.metric("평균 점수", "—", "투표 없음")
                 else:
-                    st.metric("평균 점수", "—", "투표 없음")
+                    st.metric("평균 점수", "? / 5", "팀장 인증 후 공개")
 
             video_col, vote_col = st.columns([1.1, 1])
             with video_col:
                 st.video(song["url"])
             with vote_col:
-                my_score = votes.get(voter)
                 default_score = int(my_score) if my_score is not None else 3
-
                 score = st.slider(
                     "점수 (1~5점)",
                     min_value=1,
                     max_value=5,
                     value=default_score,
-                    key=f"score_{song_id}_{voter}",
+                    key=f"score_{song_id}_{user}",
                 )
-
                 if st.button(
                     "투표하기",
                     key=f"submit_vote_{song_id}",
                     use_container_width=True,
                 ):
                     with st.spinner("저장 중..."):
-                        ok = db.upsert_vote(song_id, voter, score)
+                        ok = db.upsert_vote(song_id, user, score)
                     if ok:
-                        st.toast(f"{voter}님이 「{song['title']}」에 {score}점 투표!")
+                        st.toast(f"{user}님이 「{song['title']}」에 {score}점 투표!")
                         after_write()
-
                 if my_score is not None:
                     st.caption(f"내 투표: {my_score}점 (변경 시 다시 제출)")
 
 
 def render_schedule_tab() -> None:
+    if not is_member_selected():
+        render_login_required()
+        return
+
+    user = current_user()
     st.subheader("일정 조정")
     st.caption(
-        "본인 이름을 선택한 뒤 가능한 시간을 체크하고, **일정 저장** 버튼을 눌러주세요. "
-        f"맨 아래 팀 요약 표에서 시간대별 가능 인원을 확인할 수 있습니다 ({TEAM_SIZE}명 기준)."
+        f"{user}님, 드래그로 가능한 시간을 선택한 뒤 표 하단 **저장하기**를 눌러주세요. "
+        f"팀 요약은 아래에서 확인할 수 있습니다 ({TEAM_SIZE}명 기준)."
     )
 
     today = date.today()
     default_end = today + timedelta(days=27)
-
     date_range = st.date_input(
         "일정 범위",
         value=(today, default_end),
         min_value=today,
-        help="오늘부터 최대 4주(28일) 범위를 기본으로 합니다. 필요하면 범위를 조정하세요.",
+        help="오늘부터 최대 4주(28일) 범위를 기본으로 합니다.",
     )
-
     if isinstance(date_range, tuple) and len(date_range) == 2:
         start_date, end_date = date_range
     else:
@@ -338,103 +397,59 @@ def render_schedule_tab() -> None:
     if (end_date - start_date).days + 1 > 28:
         st.warning("선택 범위가 28일을 넘습니다. 표가 넓어질 수 있습니다.")
 
-    schedule_member = st.selectbox(
-        "일정 입력 (본인 이름)",
-        MEMBERS,
-        key="schedule_member",
-    )
-
     with st.spinner("내 일정 불러오는 중..."):
-        member_slots_data = load_member_availability(
-            schedule_member, start_date, end_date
-        )
-
-    if member_slots_data is None:
+        member_slots = load_member_availability(user, start_date, end_date)
+    if member_slots is None:
         return
 
-    member_df = build_member_availability_df(
-        start_date, end_date, schedule_member, member_slots_data
+    dates_payload = dates_for_component(start_date, end_date)
+    times_payload = time_slots()
+    selected_payload = {k: v for k, v in member_slots.items() if v}
+
+    st.markdown(f"**{user}님의 가능 시간** · 드래그로 선택")
+    component_key = f"drag_{user}_{start_date}_{end_date}"
+    component_result = drag_schedule_timetable(
+        dates=dates_payload,
+        times=times_payload,
+        selected=selected_payload,
+        height=min(900, 160 + len(times_payload) * 36),
+        key=component_key,
     )
 
-    st.markdown(f"**{schedule_member}님의 가능 시간** · 행 = 시간, 열 = 날짜")
-    edited_df = st.data_editor(
-        member_df,
-        use_container_width=True,
-        hide_index=False,
-        column_config={
-            col: st.column_config.CheckboxColumn(
-                col,
-                help=f"{col}에 가능하면 체크",
-                default=False,
-            )
-            for col in member_df.columns
-        },
-        key=f"schedule_editor_{schedule_member}_{start_date}_{end_date}",
-    )
-
-    has_changes = not edited_df.astype(bool).equals(member_df.astype(bool))
-    my_checked = int(edited_df.values.sum())
-
-    if has_changes:
-        changed_count = int((edited_df.astype(bool) != member_df.astype(bool)).values.sum())
-        st.warning(f"저장되지 않은 변경 {changed_count}칸이 있습니다. 아래 **일정 저장**을 눌러주세요.")
-
-    save_col, info_col = st.columns([1, 2])
-    with save_col:
-        save_clicked = st.button(
-            "일정 저장",
-            type="primary",
-            disabled=not has_changes,
-            use_container_width=True,
-            key=f"save_schedule_{schedule_member}_{start_date}_{end_date}",
-        )
-    with info_col:
-        st.caption(
-            f"{schedule_member}님이 체크한 칸: {my_checked}개 · "
-            "여러 칸을 연속으로 선택한 뒤 한 번에 저장할 수 있습니다."
-        )
-
-    if save_clicked:
-        with st.spinner(
-            "저장 중... 페이지를 닫거나 새로고침하지 마세요. 저장이 끝날 때까지 기다려 주세요."
-        ):
-            ok = save_member_availability_from_df(
-                edited_df, member_df, schedule_member
-            )
-        if ok:
-            st.success("일정이 저장되었습니다.")
-            after_write()
+    if component_result and component_result.get("action") == "save":
+        new_slots = component_result.get("slots", {})
+        save_fingerprint = json.dumps(new_slots, sort_keys=True, default=str)
+        if st.session_state.get("last_schedule_save") != save_fingerprint:
+            with st.spinner(
+                "저장 중... 페이지를 닫거나 새로고침하지 마세요. "
+                "저장이 끝날 때까지 기다려 주세요."
+            ):
+                ok = save_slots_to_db(user, new_slots, member_slots)
+            if ok:
+                st.session_state.last_schedule_save = save_fingerprint
+                st.success("일정이 저장되었습니다.")
+                after_write()
 
     st.divider()
-
     with st.spinner("팀 일정 불러오는 중..."):
         all_availability = load_all_availability(start_date, end_date)
-
     if all_availability is None:
         return
 
     summary_display_df, summary_ratio_df = build_availability_summary_dfs(
         start_date, end_date, all_availability
     )
-    styled_summary = style_availability_summary(
-        summary_display_df, summary_ratio_df
-    )
-
+    styled_summary = style_availability_summary(summary_display_df, summary_ratio_df)
     st.markdown(
         f"**팀 가능 인원 요약** · 각 칸 = `가능 인원 / {TEAM_SIZE}` "
         "(진할수록 가능 인원 비율이 높음)"
     )
-    st.dataframe(
-        styled_summary,
-        use_container_width=True,
-        hide_index=False,
-    )
+    st.dataframe(styled_summary, use_container_width=True, hide_index=False)
 
 
 def render_booking_tab() -> None:
     st.subheader("합주실 예약")
     st.caption("아래 버튼을 눌러 각 합주실 예약 페이지로 이동하세요.")
-
     for name, url in PRACTICE_ROOMS:
         st.link_button(name, url, use_container_width=True)
         st.markdown("")
@@ -455,14 +470,8 @@ def inject_styles() -> None:
         }
 
         [data-testid="stSidebar"] {
-            background: linear-gradient(
-                165deg,
-                #14121f 0%,
-                #231f35 42%,
-                #1a1728 100%
-            );
+            background: linear-gradient(165deg, #14121f 0%, #231f35 42%, #1a1728 100%);
             border-right: 1px solid rgba(167, 139, 250, 0.12);
-            box-shadow: 4px 0 32px rgba(15, 12, 30, 0.15);
         }
 
         [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
@@ -472,42 +481,30 @@ def inject_styles() -> None:
             padding: 0.5rem 0.25rem 1.5rem;
         }
 
-        [data-testid="stSidebar"] * {
-            color: #ece9f5 !important;
-        }
-
+        [data-testid="stSidebar"] * { color: #ece9f5 !important; }
         [data-testid="stSidebar"] hr {
             margin: 1.25rem 0 1.5rem !important;
             border-color: rgba(255, 255, 255, 0.12) !important;
         }
 
-        .sidebar-header-wrap {
-            padding: 0.25rem 0.35rem 0.5rem;
-            margin-bottom: 0.25rem;
-        }
-
+        .sidebar-header-wrap { padding: 0.25rem 0.35rem 0.5rem; }
         .sidebar-brand {
             font-size: clamp(2.35rem, 9vw, 3.4rem) !important;
             font-weight: 800 !important;
             letter-spacing: -0.04em;
             margin: 0 0 0.5rem 0 !important;
             line-height: 1.1 !important;
-            background: linear-gradient(125deg, #ffffff 0%, #ddd6fe 45%, #a78bfa 100%);
+            background: linear-gradient(125deg, #fff 0%, #ddd6fe 45%, #a78bfa 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-            filter: drop-shadow(0 2px 12px rgba(167, 139, 250, 0.25));
         }
-
         .sidebar-tagline {
             font-size: clamp(1.2rem, 4.5vw, 1.65rem) !important;
             color: #c4bfd6 !important;
             margin: 0 !important;
             font-weight: 600 !important;
-            line-height: 1.4 !important;
-            letter-spacing: -0.02em;
         }
-
         .sidebar-menu-label {
             font-size: clamp(1rem, 3.8vw, 1.12rem) !important;
             color: #9b94b0 !important;
@@ -517,15 +514,8 @@ def inject_styles() -> None:
             margin: 0 0 1rem 0.35rem !important;
         }
 
-        [data-testid="stSidebar"] .stRadio {
-            flex: 1;
-            width: 100%;
-        }
-
-        [data-testid="stSidebar"] .stRadio > label {
-            display: none;
-        }
-
+        [data-testid="stSidebar"] .stRadio { flex: 1; width: 100%; }
+        [data-testid="stSidebar"] .stRadio > label { display: none; }
         [data-testid="stSidebar"] .stRadio div[role="radiogroup"] {
             gap: clamp(0.65rem, 2.5vw, 1rem) !important;
             width: 100% !important;
@@ -533,78 +523,36 @@ def inject_styles() -> None:
             flex-direction: column !important;
             align-items: stretch !important;
         }
-
         [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"] {
             background: rgba(255, 255, 255, 0.06);
             border: 1.5px solid rgba(255, 255, 255, 0.12);
             border-radius: 18px;
             padding: clamp(1.05rem, 4vw, 1.45rem) clamp(1.1rem, 4vw, 1.5rem) !important;
-            margin-bottom: 0 !important;
-            margin-left: 0 !important;
-            margin-right: 0 !important;
             width: 100% !important;
-            max-width: 100% !important;
             box-sizing: border-box !important;
-            display: flex !important;
-            align-items: center !important;
             min-height: 3.25rem;
             font-size: clamp(1.2rem, 4.8vw, 1.5rem) !important;
             font-weight: 650 !important;
-            line-height: 1.35 !important;
-            transition: all 0.22s ease;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
         }
-
-        [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"] > div:first-child {
-            flex: 1;
-            width: 100%;
-        }
-
-        [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"] > div,
-        [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"] p,
-        [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"] span {
-            font-size: inherit !important;
-            font-weight: inherit !important;
-            line-height: inherit !important;
-        }
-
-        [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]:hover {
-            background: rgba(139, 92, 246, 0.22);
-            border-color: rgba(196, 181, 253, 0.45);
-            transform: translateY(-1px);
-            box-shadow: 0 6px 20px rgba(124, 58, 237, 0.2);
-        }
-
         [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]:has(input:checked) {
-            background: linear-gradient(
-                135deg,
-                rgba(124, 58, 237, 0.55) 0%,
-                rgba(99, 102, 241, 0.4) 100%
-            ) !important;
+            background: linear-gradient(135deg, rgba(124,58,237,0.55), rgba(99,102,241,0.4)) !important;
             border-color: rgba(196, 181, 253, 0.65) !important;
-            box-shadow: 0 8px 28px rgba(124, 58, 237, 0.35);
         }
 
         .sidebar-credit-wrap {
             margin-top: auto;
-            padding: 2.25rem 0.5rem 0.25rem;
-            margin-bottom: 0.75rem;
+            padding: 2.25rem 0.5rem 0.75rem;
             border-top: 1px solid rgba(255, 255, 255, 0.1);
             text-align: center;
         }
-
         .sidebar-credit {
             font-size: clamp(1rem, 3.8vw, 1.15rem) !important;
             color: #8f879e !important;
             margin: 0 !important;
-            font-weight: 500 !important;
-            line-height: 1.5 !important;
         }
-
         .sidebar-credit .credit-name {
             color: #c4b5fd !important;
             font-weight: 700 !important;
-            letter-spacing: 0.02em;
         }
 
         h1 {
@@ -616,15 +564,11 @@ def inject_styles() -> None:
             background-clip: text;
         }
 
-        [data-testid="stVideo"] {
-            max-width: 320px;
-        }
-
+        [data-testid="stVideo"] { max-width: 320px; }
         [data-testid="stVideo"] iframe {
             border-radius: 12px;
             box-shadow: 0 6px 24px rgba(30, 27, 46, 0.12);
         }
-
         .stLinkButton > a {
             padding: 1.1rem 1.25rem !important;
             font-size: 1.08rem !important;
@@ -662,15 +606,15 @@ def main() -> None:
         st.markdown(
             """
             <div class="sidebar-credit-wrap">
-                <p class="sidebar-credit">
-                    Made by <span class="credit-name">@kbj110</span>
-                </p>
+                <p class="sidebar-credit">Made by <span class="credit-name">@kbj110</span></p>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    st.title("LAB A team 합주 관리")
+    st.title("LAB A팀 합주 관리")
+    render_global_identity_block()
+    st.divider()
 
     if selected_menu == "선곡 투표":
         render_vote_tab()
