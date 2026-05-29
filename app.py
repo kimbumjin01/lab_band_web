@@ -19,21 +19,41 @@ hide_streamlit_style = """
 <style>
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
-
-/* 툴바·워터마크만 숨김 — header 전체 숨기면 모바일 사이드바(≡) 버튼도 사라짐 */
-[data-testid="stToolbar"] {display: none;}
 [data-testid="stDecoration"] {display: none;}
-header[data-testid="stHeader"] {
-    background: transparent;
+
+/* 데스크톱: 예전 방식 — header만 숨김 (사이드바 패널은 별도 영역이라 정상 표시) */
+@media (min-width: 769px) {
+    header[data-testid="stHeader"] {
+        visibility: hidden;
+        height: 0 !important;
+        min-height: 0 !important;
+    }
+    [data-testid="stSidebar"] {
+        visibility: visible !important;
+        transform: none !important;
+    }
+    [data-testid="stSidebar"] > div:first-child {
+        visibility: visible !important;
+    }
 }
 
-/* 모바일 사이드바 열기 버튼 항상 표시 */
-[data-testid="stSidebarCollapsedControl"],
-[data-testid="collapsedControl"] {
-    visibility: visible !important;
-    display: flex !important;
-    opacity: 1 !important;
-    z-index: 999990;
+/* 모바일: header는 유지(≡ 메뉴), 툴바·워터마크만 숨김 */
+@media (max-width: 768px) {
+    header[data-testid="stHeader"] {
+        visibility: visible !important;
+        background: transparent;
+    }
+    [data-testid="stToolbar"] {
+        display: none;
+    }
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"],
+    button[data-testid="baseButton-header"] {
+        visibility: visible !important;
+        display: flex !important;
+        opacity: 1 !important;
+        z-index: 999990;
+    }
 }
 </style>
 """
