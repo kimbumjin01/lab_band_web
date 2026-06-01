@@ -536,6 +536,56 @@ def render_schedule_tab() -> None:
     )
     st.dataframe(styled_summary, use_container_width=True, hide_index=False)
 
+    # ── 시간대 상세 보기 ──
+    st.markdown("---")
+    st.markdown("#### 🔍 시간대 상세 보기")
+    st.caption("날짜와 시간을 선택하면 해당 슬롯의 가능/불가 인원을 확인할 수 있습니다.")
+
+    date_label_to_iso = {d["label"]: d["iso"] for d in dates_payload}
+
+    detail_col1, detail_col2 = st.columns(2)
+    with detail_col1:
+        selected_date_label = st.selectbox(
+            "날짜",
+            options=list(date_label_to_iso.keys()),
+            key="detail_date_select",
+        )
+    with detail_col2:
+        selected_time = st.selectbox(
+            "시간",
+            options=times_payload,
+            key="detail_time_select",
+        )
+
+    selected_key = slot_key(date_label_to_iso[selected_date_label], selected_time)
+
+    available_members = [
+        m for m in ACTUAL_MEMBERS
+        if all_availability.get(m, {}).get(selected_key, False)
+    ]
+    unavailable_members = [
+        m for m in ACTUAL_MEMBERS
+        if not all_availability.get(m, {}).get(selected_key, False)
+    ]
+
+    avail_col, unavail_col = st.columns(2)
+    with avail_col:
+        with st.container(border=True):
+            st.markdown(f"**✅ 가능 — {len(available_members)}명**")
+            if available_members:
+                for m in available_members:
+                    st.markdown(f"- {m}")
+            else:
+                st.caption("가능한 인원이 없습니다.")
+    with unavail_col:
+        with st.container(border=True):
+            st.markdown(f"**⬜ 미입력 / 불가 — {len(unavailable_members)}명**")
+            if unavailable_members:
+                for m in unavailable_members:
+                    st.markdown(f"- {m}")
+            else:
+                st.caption("모든 인원이 가능합니다.")
+
     if is_admin():
         st.divider()
         st.markdown("### 📌 합주 일정 확정")
