@@ -67,6 +67,17 @@ def delete_song(song_id: int) -> bool:
 
     return _run_db("delete_song", _delete) is True
 
+def update_song(song_id: int, title: str, notes: str) -> bool:
+    def _update() -> bool:
+        get_client().table("songs").update(
+            {
+                "title": title.strip(),
+                "notes": notes.strip() or None,
+            }
+        ).eq("id", song_id).execute()
+        return True
+
+    return _run_db("update_song", _update) is True
 
 def get_votes(song_id: int) -> dict[str, int] | None:
     def _fetch() -> dict[str, int]:

@@ -374,46 +374,86 @@ def render_vote_tab() -> None:
         my_score = votes.get(user)
 
         with st.container(border=True):
-            header_col, score_col = st.columns([3, 1])
-            with header_col:
-                st.markdown(f"### {song['title']}")
-                st.caption(f"등록: **{uploader}**")
-                if song.get("notes"):
-                    st.caption(f"📝 {song['notes']}")
-            with score_col:
-                if can_view_scores():
-                    if avg is not None:
-                        st.metric("평균 점수", f"{avg:.1f} / 5", f"{vote_count}명 투표")
-                    else:
-                        st.metric("평균 점수", "—", "투표 없음")
-                else:
-                    st.metric("평균 점수", "? / 5", "팀장 로그인 후 공개")
+                    header_col, score_col = st.columns([3, 1])
+                    with header_col:
+                        st.markdown(f"### {song['title']}")
+                        st.caption(f"등록: **{uploader}**")
+                        if song.get("notes"):
+                            st.caption(f"📝 {song['notes']}")
+                    with score_col:
+                        if can_view_scores():
+                            if avg is not None:
+                                st.metric("평균 점수", f"{avg:.1f} / 5", f"{vote_count}명 투표")
+                            else:
+                                st.metric("평균 점수", "—", "투표 없음")
+                        else:
+                            st.metric("평균 점수", "? / 5", "팀장 로그인 후 공개")
 
-            video_col, vote_col = st.columns([1.1, 1])
-            with video_col:
-                st.video(song["url"])
-            with vote_col:
-                default_score = int(my_score) if my_score is not None else 3
-                score = st.slider(
-                    "점수 (1~5점)",
-                    min_value=1,
-                    max_value=5,
-                    value=default_score,
-                    key=f"score_{song_id}_{user}",
-                )
-                if st.button(
-                    "투표하기",
-                    key=f"submit_vote_{song_id}",
-                    use_container_width=True,
-                ):
-                    with st.spinner("저장 중..."):
-                        ok = db.upsert_vote(song_id, user, score)
-                    if ok:
-                        st.toast(f"{user}님이 「{song['title']}」에 {score}점 투표!")
-                        after_write()
-                if my_score is not None:
-                    st.caption(f"내 투표: {my_score}점 (변경 시 다시 제출)")
+                    video_col, vote_col = st.columns([1.1, 1])
+                    with video_col:
+                        st.video(song["url"])
+                    with vote_col:
+                        default_score = int(my_score) if my_score is not None else 3
+                        score = st.slider(
+                            "점수 (1~5점)",
+                            min_value=1,
+                            max_value=5,
+                            value=default_score,
+                            key=f"score_{song_id}_{user}",
+                        )
+                        if st.button(
+                            "투표하기",
+                            key=f"submit_vote_{song_id}",
+                            use_container_width=True,
+                        ):
+                            with st.spinner("저장 중..."):
+                                ok = db.upsert_vote(song_id, user, score)
+                            if ok:
+                                st.toast(f"{user}님이 「{song['title']}」에 {score}점 투표!")
+                                after_write()
+                        if my_score is not None:
+                            st.caption(f"내 투표: {my_score}점 (변경 시 다시 제출)")
 
+                    # ── 본인 곡 수정/삭제 ──
+                    if uploader == user:
+                        with st.expander("✏️ 내 곡 수정 / 삭제", expanded=False):
+                            with st.form(key=f"edit_song_{song_id}"):
+                                new_title = st.text_input(
+                                    "곡 제목",
+                                    value=song["title"],
+                                    key=f"edit_title_{song_id}",
+                                )
+                                new_notes = st.text_area(
+                                    "특이사항/비고",
+                                    value=song.get("notes") or "",
+                                    max_chars=200,
+                                    height=80,
+                                    key=f"edit_notes_{song_id}",
+                                )
+                                edit_col, del_col = st.columns([3, 1])
+                                with edit_col:
+                                    if st.form_submit_button(
+                                        "수정 저장", use_container_width=True
+                                    ):
+                                        if not new_title.strip():
+                                            st.warning("제목을 입력해 주세요.")
+                                        else:
+                                            with st.spinner("저장 중..."):
+                                                ok = db.update_song(
+                                                    song_id, new_title, new_notes
+                                                )
+                                            if ok:
+                                                st.toast(f"「{new_title}」 수정 완료!")
+                                                after_write()
+                                with del_col:
+                                    if st.form_submit_button(
+                                        "🗑️ 삭제", use_container_width=True
+                                    ):
+                                        with st.spinner("삭제 중..."):
+                                            ok = db.delete_song(song_id)
+                                        if ok:
+                                            st.toast(f"「{song['title']}」 삭제됨")
+                                            after_write()
 
 def render_schedule_tab() -> None:
     if not is_authenticated():
