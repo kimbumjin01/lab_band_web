@@ -261,7 +261,6 @@ def delete_comment(comment_id: int) -> bool:
 
     return _run_db("delete_comment", _delete) is True
 
-@st.cache_data(ttl=15)
 def get_all_votes() -> dict[int, dict[str, int]] | None:
     def _fetch() -> dict[int, dict[str, int]]:
         response = (
@@ -280,7 +279,6 @@ def get_all_votes() -> dict[int, dict[str, int]] | None:
     return result if result is not None else None
 
 
-@st.cache_data(ttl=15)
 def get_all_comments() -> dict[int, list[dict]] | None:
     def _fetch() -> dict[int, list[dict]]:
         response = (
