@@ -222,3 +222,41 @@ def delete_confirmed_schedule(schedule_id: int) -> bool:
         return True
 
     return _run_db("delete_confirmed_schedule", _delete) is True
+
+@st.cache_data(ttl=15)
+def get_comments(song_id: int) -> list[dict] | None:
+    def _fetch() -> list[dict]:
+        response = (
+            get_client()
+            .table("song_comments")
+            .select("id, song_id, member, content, created_at")
+            .eq("song_id", song_id)
+            .order("created_at", desc=False)
+            .execute()
+        )
+        return response.data or []
+
+    result = _run_db("get_comments", _fetch)
+    return result if result is not None else None
+
+
+def add_comment(song_id: int, member: str, content: str) -> bool:
+    def _insert() -> bool:
+        get_client().table("song_comments").insert(
+            {
+                "song_id": song_id,
+                "member": member,
+                "content": content.strip(),
+            }
+        ).execute()
+        return True
+
+    return _run_db("add_comment", _insert) is True
+
+
+def delete_comment(comment_id: int) -> bool:
+    def _delete() -> bool:
+        get_client().table("song_comments").delete().eq("id", comment_id).execute()
+        return True
+
+    return _run_db("delete_comment", _delete) is True

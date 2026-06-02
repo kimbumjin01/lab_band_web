@@ -116,6 +116,10 @@ def load_all_availability(
 ) -> dict[str, dict[str, bool]] | None:
     return db.get_all_availability(start_date, end_date)
 
+@st.cache_data(ttl=15)
+def load_comments(song_id: int) -> list[dict] | None:
+    return db.get_comments(song_id)
+
 
 def after_write() -> None:
     st.cache_data.clear()
@@ -413,6 +417,50 @@ def render_vote_tab() -> None:
                                 after_write()
                         if my_score is not None:
                             st.caption(f"내 투표: {my_score}점 (변경 시 다시 제출)")
+                # ── 댓글 ──
+                    with st.expander(f"💬 의견 보기 / 달기", expanded=False):
+                        comments = load_comments(song_id)
+
+                        if comments:
+                            for c in comments:
+                                c_col, d_col = st.columns([6, 1])
+                                with c_col:
+                                    st.markdown(
+                                        f"**{c['member']}** "
+                                        f"<span style='color:#9ca3af;font-size:0.8rem'>"
+                                        f"{c['created_at'][:10]}</span>  \n{c['content']}",
+                                        unsafe_allow_html=True,
+                                    )
+                                with d_col:
+                                    # 본인 댓글만 삭제 가능
+                                    if c["member"] == user:
+                                        if st.button(
+                                            "🗑️",
+                                            key=f"del_comment_{c['id']}",
+                                            help="댓글 삭제",
+                                        ):
+                                            db.delete_comment(int(c["id"]))
+                                            after_write()
+                            st.divider()
+                        else:
+                            st.caption("아직 의견이 없습니다. 첫 번째로 남겨보세요!")
+
+                        with st.form(key=f"comment_form_{song_id}", clear_on_submit=True):
+                            new_comment = st.text_area(
+                                "의견 작성",
+                                placeholder="이 곡에 대한 의견을 자유롭게 남겨주세요.",
+                                max_chars=300,
+                                height=80,
+                                label_visibility="collapsed",
+                            )
+                            if st.form_submit_button("등록", use_container_width=True):
+                                if not new_comment.strip():
+                                    st.warning("내용을 입력해 주세요.")
+                                else:
+                                    ok = db.add_comment(song_id, user, new_comment)
+                                    if ok:
+                                        st.toast("의견이 등록되었습니다!")
+                                        after_write()
 
                     # ── 본인 곡 수정/삭제 ──
                     if uploader == user:
