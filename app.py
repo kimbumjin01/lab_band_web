@@ -59,6 +59,7 @@ PRACTICE_ROOMS = [
     ("드림합주실 (2호점)", "https://naver.me/xfYAPtAl"),
 ]
 
+SONGS_PER_PAGE = 10
 
 def init_session_state() -> None:
     if "schedule_col_iso" not in st.session_state:
@@ -67,6 +68,8 @@ def init_session_state() -> None:
         st.session_state.authenticated_member = None
     if "global_user" not in st.session_state:
         st.session_state.global_user = NAME_PLACEHOLDER
+    if "vote_page" not in st.session_state:
+        st.session_state.vote_page = 0
 
 
 def is_member_selected() -> bool:
@@ -99,8 +102,8 @@ def load_songs() -> list[dict] | None:
 
 
 @st.cache_data(ttl=15)
-def load_votes(song_id: int) -> dict[str, int] | None:
-    return db.get_votes(song_id)
+def load_all_votes() -> dict[int, dict[str, int]] | None:
+    return db.get_all_votes()
 
 
 @st.cache_data(ttl=15)
@@ -117,8 +120,8 @@ def load_all_availability(
     return db.get_all_availability(start_date, end_date)
 
 @st.cache_data(ttl=15)
-def load_comments(song_id: int) -> list[dict] | None:
-    return db.get_comments(song_id)
+def load_all_comments() -> dict[int, list[dict]] | None:
+    return db.get_all_comments()
 
 
 def after_write() -> None:
@@ -315,6 +318,197 @@ def render_confirmed_schedules_banner() -> None:
         st.divider()
 
 
+# def render_vote_tab() -> None:
+#     if not is_authenticated():
+#         render_login_required()
+#         return
+
+#     user = authenticated_user()
+#     st.subheader("선곡 투표")
+#     st.caption(f"{user}님, 곡을 추가하고 1~5점으로 투표해 보세요.")
+
+#     with st.spinner("곡 목록 불러오는 중..."):
+#         songs = load_songs()
+#     if songs is None:
+#         return
+
+#     with st.expander("곡 추가", expanded=len(songs) == 0):
+#         with st.form("add_song_form", clear_on_submit=True):
+#             st.caption(f"등록자: **{user}** (상단에서 선택한 이름)")
+#             title = st.text_input("곡 제목", placeholder="예: 봄날")
+#             youtube_url = st.text_input(
+#                 "유튜브 링크",
+#                 placeholder="https://www.youtube.com/watch?v=...",
+#             )
+#             notes = st.text_area(
+#                 "특이사항/비고",
+#                 placeholder="예: 원키 말고 반키 낮춰서, 일렉 솔로 주의 등",
+#                 max_chars=200,
+#                 height=80,
+#             )
+#             submitted = st.form_submit_button("목록에 추가", use_container_width=True)
+#             if submitted:
+#                 if not title.strip():
+#                     st.warning("곡 제목을 입력해 주세요.")
+#                 elif not youtube_url.strip():
+#                     st.warning("유튜브 링크를 입력해 주세요.")
+#                 else:
+#                     with st.spinner("저장 중..."):
+#                         ok = db.add_song(
+#                             title.strip(),
+#                             youtube_embed_url(youtube_url),
+#                             user,
+#                             notes,
+#                         )
+#                     if ok:
+#                         st.success(f"{user}님이 「{title.strip()}」을(를) 추가했습니다.")
+#                         after_write()
+
+#     if not songs:
+#         st.info("아직 등록된 곡이 없습니다. 위 폼에서 곡을 추가해 주세요.")
+#         return
+
+#     st.divider()
+#     for song in songs:
+#         song_id = int(song["id"])
+#         votes = load_votes(song_id)
+#         if votes is None:
+#             continue
+
+#         avg = song_average(votes)
+#         vote_count = len(votes)
+#         uploader = song.get("uploaded_by", "미상")
+#         my_score = votes.get(user)
+
+#         with st.container(border=True):
+#                     header_col, score_col = st.columns([3, 1])
+#                     with header_col:
+#                         st.markdown(f"### {song['title']}")
+#                         st.caption(f"등록: **{uploader}**")
+#                         if song.get("notes"):
+#                             st.caption(f"📝 {song['notes']}")
+#                     with score_col:
+#                         if can_view_scores():
+#                             if avg is not None:
+#                                 st.metric("평균 점수", f"{avg:.1f} / 5", f"{vote_count}명 투표")
+#                             else:
+#                                 st.metric("평균 점수", "—", "투표 없음")
+#                         else:
+#                             st.metric("평균 점수", "? / 5", "팀장 로그인 후 공개")
+
+#                     video_col, vote_col = st.columns([1.1, 1])
+#                     with video_col:
+#                         st.video(song["url"])
+#                     with vote_col:
+#                         default_score = int(my_score) if my_score is not None else 3
+#                         score = st.slider(
+#                             "점수 (1~5점)",
+#                             min_value=1,
+#                             max_value=5,
+#                             value=default_score,
+#                             key=f"score_{song_id}_{user}",
+#                         )
+#                         if st.button(
+#                             "투표하기",
+#                             key=f"submit_vote_{song_id}",
+#                             use_container_width=True,
+#                         ):
+#                             with st.spinner("저장 중..."):
+#                                 ok = db.upsert_vote(song_id, user, score)
+#                             if ok:
+#                                 st.toast(f"{user}님이 「{song['title']}」에 {score}점 투표!")
+#                                 after_write()
+#                         if my_score is not None:
+#                             st.caption(f"내 투표: {my_score}점 (변경 시 다시 제출)")
+
+#                     # ── 댓글 ──
+#                     st.markdown("💬 **의견**")
+#                     comments = load_comments(song_id)
+
+#                     if comments:
+#                         for c in comments:
+#                             c_col, d_col = st.columns([6, 1])
+#                             with c_col:
+#                                 display_name = "나" if c["member"] == user else (c["member"] if is_admin() else "익명")
+#                                 st.markdown(
+#                                     f"**{display_name}** "
+#                                     f"<span style='color:#9ca3af;font-size:0.8rem'>"
+#                                     f"{c['created_at'][:10]}</span>  \n{c['content']}",
+#                                     unsafe_allow_html=True,
+#                                 )
+#                             with d_col:
+#                                 if c["member"] == user:
+#                                     if st.button(
+#                                         "🗑️",
+#                                         key=f"del_comment_{c['id']}",
+#                                         help="댓글 삭제",
+#                                     ):
+#                                         db.delete_comment(int(c["id"]))
+#                                         after_write()
+#                         st.divider()
+#                     else:
+#                         st.caption("아직 의견이 없습니다. 첫 번째로 남겨보세요!")
+
+#                     with st.form(key=f"comment_form_{song_id}", clear_on_submit=True):
+#                         new_comment = st.text_area(
+#                             "의견 작성",
+#                             placeholder="이 곡에 대한 의견을 자유롭게 남겨주세요.",
+#                             max_chars=300,
+#                             height=80,
+#                             label_visibility="collapsed",
+#                         )
+#                         if st.form_submit_button("등록", use_container_width=True):
+#                             if not new_comment.strip():
+#                                 st.warning("내용을 입력해 주세요.")
+#                             else:
+#                                 ok = db.add_comment(song_id, user, new_comment)
+#                                 if ok:
+#                                     st.toast("의견이 등록되었습니다!")
+#                                     after_write()
+
+
+#                     # ── 본인 곡 수정/삭제 ──
+#                     if uploader == user:
+#                         with st.expander("✏️ 내 곡 수정 / 삭제", expanded=False):
+#                             with st.form(key=f"edit_song_{song_id}"):
+#                                 new_title = st.text_input(
+#                                     "곡 제목",
+#                                     value=song["title"],
+#                                     key=f"edit_title_{song_id}",
+#                                 )
+#                                 new_notes = st.text_area(
+#                                     "특이사항/비고",
+#                                     value=song.get("notes") or "",
+#                                     max_chars=200,
+#                                     height=80,
+#                                     key=f"edit_notes_{song_id}",
+#                                 )
+#                                 edit_col, del_col = st.columns([3, 1])
+#                                 with edit_col:
+#                                     if st.form_submit_button(
+#                                         "수정 저장", use_container_width=True
+#                                     ):
+#                                         if not new_title.strip():
+#                                             st.warning("제목을 입력해 주세요.")
+#                                         else:
+#                                             with st.spinner("저장 중..."):
+#                                                 ok = db.update_song(
+#                                                     song_id, new_title, new_notes
+#                                                 )
+#                                             if ok:
+#                                                 st.toast(f"「{new_title}」 수정 완료!")
+#                                                 after_write()
+#                                 with del_col:
+#                                     if st.form_submit_button(
+#                                         "🗑️ 삭제", use_container_width=True
+#                                     ):
+#                                         with st.spinner("삭제 중..."):
+#                                             ok = db.delete_song(song_id)
+#                                         if ok:
+#                                             st.toast(f"「{song['title']}」 삭제됨")
+#                                             after_write()
+###
+
 def render_vote_tab() -> None:
     if not is_authenticated():
         render_login_required()
@@ -359,18 +553,51 @@ def render_vote_tab() -> None:
                         )
                     if ok:
                         st.success(f"{user}님이 「{title.strip()}」을(를) 추가했습니다.")
+                        st.session_state.vote_page = 0
                         after_write()
 
     if not songs:
         st.info("아직 등록된 곡이 없습니다. 위 폼에서 곡을 추가해 주세요.")
         return
 
+    # ── 배치 로딩 (쿼리 3번으로 고정) ──
+    with st.spinner("데이터 불러오는 중..."):
+        all_votes = load_all_votes() or {}
+        all_comments = load_all_comments() or {}
+
+    # ── 페이지네이션 ──
+    total = len(songs)
+    total_pages = max(1, (total + SONGS_PER_PAGE - 1) // SONGS_PER_PAGE)
+    page = min(st.session_state.vote_page, total_pages - 1)
+    st.session_state.vote_page = page
+    page_songs = songs[page * SONGS_PER_PAGE : (page + 1) * SONGS_PER_PAGE]
+
     st.divider()
-    for song in songs:
+
+    # 페이지 네비게이션 (상단)
+    nav_left, nav_mid, nav_right = st.columns([1, 2, 1])
+    with nav_left:
+        if st.button("◀ 이전", disabled=(page == 0), use_container_width=True):
+            st.session_state.vote_page -= 1
+            st.rerun()
+    with nav_mid:
+        st.markdown(
+            f"<p style='text-align:center;font-weight:600;'>"
+            f"{page + 1} / {total_pages} 페이지 &nbsp;·&nbsp; 전체 {total}곡"
+            f"</p>",
+            unsafe_allow_html=True,
+        )
+    with nav_right:
+        if st.button("다음 ▶", disabled=(page >= total_pages - 1), use_container_width=True):
+            st.session_state.vote_page += 1
+            st.rerun()
+
+    st.divider()
+
+    for song in page_songs:
         song_id = int(song["id"])
-        votes = load_votes(song_id)
-        if votes is None:
-            continue
+        votes = all_votes.get(song_id, {})
+        comments = all_comments.get(song_id, [])
 
         avg = song_average(votes)
         vote_count = len(votes)
@@ -378,132 +605,149 @@ def render_vote_tab() -> None:
         my_score = votes.get(user)
 
         with st.container(border=True):
-                    header_col, score_col = st.columns([3, 1])
-                    with header_col:
-                        st.markdown(f"### {song['title']}")
-                        st.caption(f"등록: **{uploader}**")
-                        if song.get("notes"):
-                            st.caption(f"📝 {song['notes']}")
-                    with score_col:
-                        if can_view_scores():
-                            if avg is not None:
-                                st.metric("평균 점수", f"{avg:.1f} / 5", f"{vote_count}명 투표")
-                            else:
-                                st.metric("평균 점수", "—", "투표 없음")
-                        else:
-                            st.metric("평균 점수", "? / 5", "팀장 로그인 후 공개")
-
-                    video_col, vote_col = st.columns([1.1, 1])
-                    with video_col:
-                        st.video(song["url"])
-                    with vote_col:
-                        default_score = int(my_score) if my_score is not None else 3
-                        score = st.slider(
-                            "점수 (1~5점)",
-                            min_value=1,
-                            max_value=5,
-                            value=default_score,
-                            key=f"score_{song_id}_{user}",
-                        )
-                        if st.button(
-                            "투표하기",
-                            key=f"submit_vote_{song_id}",
-                            use_container_width=True,
-                        ):
-                            with st.spinner("저장 중..."):
-                                ok = db.upsert_vote(song_id, user, score)
-                            if ok:
-                                st.toast(f"{user}님이 「{song['title']}」에 {score}점 투표!")
-                                after_write()
-                        if my_score is not None:
-                            st.caption(f"내 투표: {my_score}점 (변경 시 다시 제출)")
-
-                    # ── 댓글 ──
-                    st.markdown("💬 **의견**")
-                    comments = load_comments(song_id)
-
-                    if comments:
-                        for c in comments:
-                            c_col, d_col = st.columns([6, 1])
-                            with c_col:
-                                display_name = "나" if c["member"] == user else (c["member"] if is_admin() else "익명")
-                                st.markdown(
-                                    f"**{display_name}** "
-                                    f"<span style='color:#9ca3af;font-size:0.8rem'>"
-                                    f"{c['created_at'][:10]}</span>  \n{c['content']}",
-                                    unsafe_allow_html=True,
-                                )
-                            with d_col:
-                                if c["member"] == user:
-                                    if st.button(
-                                        "🗑️",
-                                        key=f"del_comment_{c['id']}",
-                                        help="댓글 삭제",
-                                    ):
-                                        db.delete_comment(int(c["id"]))
-                                        after_write()
-                        st.divider()
+            header_col, score_col = st.columns([3, 1])
+            with header_col:
+                st.markdown(f"### {song['title']}")
+                st.caption(f"등록: **{uploader}**")
+                if song.get("notes"):
+                    st.caption(f"📝 {song['notes']}")
+            with score_col:
+                if can_view_scores():
+                    if avg is not None:
+                        st.metric("평균 점수", f"{avg:.1f} / 5", f"{vote_count}명 투표")
                     else:
-                        st.caption("아직 의견이 없습니다. 첫 번째로 남겨보세요!")
+                        st.metric("평균 점수", "—", "투표 없음")
+                else:
+                    st.metric("평균 점수", "? / 5", "팀장 로그인 후 공개")
 
-                    with st.form(key=f"comment_form_{song_id}", clear_on_submit=True):
-                        new_comment = st.text_area(
-                            "의견 작성",
-                            placeholder="이 곡에 대한 의견을 자유롭게 남겨주세요.",
-                            max_chars=300,
-                            height=80,
-                            label_visibility="collapsed",
+            video_col, vote_col = st.columns([1.1, 1])
+            with video_col:
+                st.video(song["url"])
+            with vote_col:
+                default_score = int(my_score) if my_score is not None else 3
+                score = st.slider(
+                    "점수 (1~5점)",
+                    min_value=1,
+                    max_value=5,
+                    value=default_score,
+                    key=f"score_{song_id}_{user}",
+                )
+                if st.button(
+                    "투표하기",
+                    key=f"submit_vote_{song_id}",
+                    use_container_width=True,
+                ):
+                    with st.spinner("저장 중..."):
+                        ok = db.upsert_vote(song_id, user, score)
+                    if ok:
+                        st.toast(f"{user}님이 「{song['title']}」에 {score}점 투표!")
+                        after_write()
+                if my_score is not None:
+                    st.caption(f"내 투표: {my_score}점 (변경 시 다시 제출)")
+
+            # ── 댓글 ──
+            st.markdown("💬 **의견**")
+            if comments:
+                for c in comments:
+                    c_col, d_col = st.columns([6, 1])
+                    with c_col:
+                        display_name = "나" if c["member"] == user else (c["member"] if is_admin() else "익명")
+                        st.markdown(
+                            f"**{display_name}** "
+                            f"<span style='color:#9ca3af;font-size:0.8rem'>"
+                            f"{c['created_at'][:10]}</span>  \n{c['content']}",
+                            unsafe_allow_html=True,
                         )
-                        if st.form_submit_button("등록", use_container_width=True):
-                            if not new_comment.strip():
-                                st.warning("내용을 입력해 주세요.")
-                            else:
-                                ok = db.add_comment(song_id, user, new_comment)
+                    with d_col:
+                        if c["member"] == user:
+                            if st.button(
+                                "🗑️",
+                                key=f"del_comment_{c['id']}",
+                                help="댓글 삭제",
+                            ):
+                                db.delete_comment(int(c["id"]))
+                                after_write()
+                st.divider()
+            else:
+                st.caption("아직 의견이 없습니다. 첫 번째로 남겨보세요!")
+
+            with st.form(key=f"comment_form_{song_id}", clear_on_submit=True):
+                new_comment = st.text_area(
+                    "의견 작성",
+                    placeholder="이 곡에 대한 의견을 자유롭게 남겨주세요.",
+                    max_chars=300,
+                    height=80,
+                    label_visibility="collapsed",
+                )
+                if st.form_submit_button("등록", use_container_width=True):
+                    if not new_comment.strip():
+                        st.warning("내용을 입력해 주세요.")
+                    else:
+                        ok = db.add_comment(song_id, user, new_comment)
+                        if ok:
+                            st.toast("의견이 등록되었습니다!")
+                            after_write()
+
+            # ── 본인 곡 수정/삭제 ──
+            if uploader == user:
+                with st.expander("✏️ 내 곡 수정 / 삭제", expanded=False):
+                    with st.form(key=f"edit_song_{song_id}"):
+                        new_title = st.text_input(
+                            "곡 제목",
+                            value=song["title"],
+                            key=f"edit_title_{song_id}",
+                        )
+                        new_notes = st.text_area(
+                            "특이사항/비고",
+                            value=song.get("notes") or "",
+                            max_chars=200,
+                            height=80,
+                            key=f"edit_notes_{song_id}",
+                        )
+                        edit_col, del_col = st.columns([3, 1])
+                        with edit_col:
+                            if st.form_submit_button(
+                                "수정 저장", use_container_width=True
+                            ):
+                                if not new_title.strip():
+                                    st.warning("제목을 입력해 주세요.")
+                                else:
+                                    with st.spinner("저장 중..."):
+                                        ok = db.update_song(
+                                            song_id, new_title, new_notes
+                                        )
+                                    if ok:
+                                        st.toast(f"「{new_title}」 수정 완료!")
+                                        after_write()
+                        with del_col:
+                            if st.form_submit_button(
+                                "🗑️ 삭제", use_container_width=True
+                            ):
+                                with st.spinner("삭제 중..."):
+                                    ok = db.delete_song(song_id)
                                 if ok:
-                                    st.toast("의견이 등록되었습니다!")
+                                    st.toast(f"「{song['title']}」 삭제됨")
+                                    st.session_state.vote_page = max(0, page - 1) if not page_songs[1:] else page
                                     after_write()
 
-
-                    # ── 본인 곡 수정/삭제 ──
-                    if uploader == user:
-                        with st.expander("✏️ 내 곡 수정 / 삭제", expanded=False):
-                            with st.form(key=f"edit_song_{song_id}"):
-                                new_title = st.text_input(
-                                    "곡 제목",
-                                    value=song["title"],
-                                    key=f"edit_title_{song_id}",
-                                )
-                                new_notes = st.text_area(
-                                    "특이사항/비고",
-                                    value=song.get("notes") or "",
-                                    max_chars=200,
-                                    height=80,
-                                    key=f"edit_notes_{song_id}",
-                                )
-                                edit_col, del_col = st.columns([3, 1])
-                                with edit_col:
-                                    if st.form_submit_button(
-                                        "수정 저장", use_container_width=True
-                                    ):
-                                        if not new_title.strip():
-                                            st.warning("제목을 입력해 주세요.")
-                                        else:
-                                            with st.spinner("저장 중..."):
-                                                ok = db.update_song(
-                                                    song_id, new_title, new_notes
-                                                )
-                                            if ok:
-                                                st.toast(f"「{new_title}」 수정 완료!")
-                                                after_write()
-                                with del_col:
-                                    if st.form_submit_button(
-                                        "🗑️ 삭제", use_container_width=True
-                                    ):
-                                        with st.spinner("삭제 중..."):
-                                            ok = db.delete_song(song_id)
-                                        if ok:
-                                            st.toast(f"「{song['title']}」 삭제됨")
-                                            after_write()
+    # 페이지 네비게이션 (하단)
+    st.divider()
+    bot_left, bot_mid, bot_right = st.columns([1, 2, 1])
+    with bot_left:
+        if st.button("◀ 이전 ", disabled=(page == 0), use_container_width=True):
+            st.session_state.vote_page -= 1
+            st.rerun()
+    with bot_mid:
+        st.markdown(
+            f"<p style='text-align:center;font-weight:600;'>"
+            f"{page + 1} / {total_pages} 페이지"
+            f"</p>",
+            unsafe_allow_html=True,
+        )
+    with bot_right:
+        if st.button("다음 ▶ ", disabled=(page >= total_pages - 1), use_container_width=True):
+            st.session_state.vote_page += 1
+            st.rerun()
 
 def render_schedule_tab() -> None:
     if not is_authenticated():

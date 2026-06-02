@@ -260,3 +260,41 @@ def delete_comment(comment_id: int) -> bool:
         return True
 
     return _run_db("delete_comment", _delete) is True
+
+@st.cache_data(ttl=15)
+def get_all_votes() -> dict[int, dict[str, int]] | None:
+    def _fetch() -> dict[int, dict[str, int]]:
+        response = (
+            get_client()
+            .table("votes")
+            .select("song_id, member, score")
+            .execute()
+        )
+        result: dict[int, dict[str, int]] = {}
+        for row in response.data or []:
+            sid = int(row["song_id"])
+            result.setdefault(sid, {})[row["member"]] = int(row["score"])
+        return result
+
+    result = _run_db("get_all_votes", _fetch)
+    return result if result is not None else None
+
+
+@st.cache_data(ttl=15)
+def get_all_comments() -> dict[int, list[dict]] | None:
+    def _fetch() -> dict[int, list[dict]]:
+        response = (
+            get_client()
+            .table("song_comments")
+            .select("id, song_id, member, content, created_at")
+            .order("created_at", desc=False)
+            .execute()
+        )
+        result: dict[int, list[dict]] = {}
+        for row in response.data or []:
+            sid = int(row["song_id"])
+            result.setdefault(sid, []).append(row)
+        return result
+
+    result = _run_db("get_all_comments", _fetch)
+    return result if result is not None else None
