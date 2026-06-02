@@ -425,8 +425,9 @@ def render_vote_tab() -> None:
                             for c in comments:
                                 c_col, d_col = st.columns([6, 1])
                                 with c_col:
+                                    display_name = "나" if c["member"] == user else (c["member"] if is_admin() else "익명")
                                     st.markdown(
-                                        f"**{c['member']}** "
+                                        f"**{display_name}** "
                                         f"<span style='color:#9ca3af;font-size:0.8rem'>"
                                         f"{c['created_at'][:10]}</span>  \n{c['content']}",
                                         unsafe_allow_html=True,
