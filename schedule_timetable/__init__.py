@@ -43,7 +43,7 @@ def drag_schedule_timetable(
 
     _write_index_html(dates, times, selected)
 
-    frame_height = min(900, max(480, 160 + len(times) * 36))
+    frame_height = min(800, max(360, 80 + len(times) * 36))
     return _drag_schedule(
         default=None,
         height=frame_height,
