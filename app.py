@@ -48,7 +48,7 @@ MENU_ICONS = {
     "합주실 예약": "🎹",
 }
 
-HOUR_START = 10
+HOUR_START = 13
 HOUR_END = 23
 WEEKDAY_KO = ["월", "화", "수", "목", "금", "토", "일"]
 
