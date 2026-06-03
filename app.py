@@ -70,6 +70,8 @@ def init_session_state() -> None:
         st.session_state.global_user = NAME_PLACEHOLDER
     if "vote_page" not in st.session_state:
         st.session_state.vote_page = 0
+    if "selected_availability_slot" not in st.session_state:
+        st.session_state.selected_availability_slot = None
 
 
 def is_member_selected() -> bool:
@@ -828,57 +830,60 @@ def render_schedule_tab() -> None:
         f"**팀 가능 인원 요약** · 각 칸 = `가능 인원 / {TEAM_SIZE}` "
         "(진할수록 가능 인원 비율이 높음)"
     )
-    st.dataframe(styled_summary, use_container_width=True, hide_index=False)
 
-    # ── 시간대 상세 보기 ──
-    st.markdown("---")
-    st.markdown("#### 🔍 시간대 상세 보기")
-    st.caption("날짜와 시간을 선택하면 해당 슬롯의 가능/불가 인원을 확인할 수 있습니다.")
+    st.caption("셀을 클릭하면 해당 시간대의 가능 인원을 확인할 수 있습니다.")
+    event = st.dataframe(
+        styled_summary,
+        use_container_width=True,
+        hide_index=False,
+        on_select="rerun",
+        selection_mode="single-cell",
+    )
 
-    date_label_to_iso = {d["label"]: d["iso"] for d in dates_payload}
+    # ── 클릭된 셀 처리 ──
+    sel = event.selection
+    if sel.rows and sel.columns:
+        row_idx = sel.rows[0]
+        col_name = sel.columns[0]
+        clicked_time = times_payload[row_idx]
+        clicked_iso = st.session_state.schedule_col_iso.get(col_name)
+        if clicked_iso:
+            st.session_state.selected_availability_slot = (
+                col_name, clicked_time, clicked_iso
+            )
 
-    detail_col1, detail_col2 = st.columns(2)
-    with detail_col1:
-        selected_date_label = st.selectbox(
-            "날짜",
-            options=list(date_label_to_iso.keys()),
-            key="detail_date_select",
-        )
-    with detail_col2:
-        selected_time = st.selectbox(
-            "시간",
-            options=times_payload,
-            key="detail_time_select",
-        )
+    # ── 상세 표시 ──
+    if st.session_state.get("selected_availability_slot"):
+        col_name, clicked_time, clicked_iso = st.session_state.selected_availability_slot
+        clicked_key = slot_key(clicked_iso, clicked_time)
 
-    selected_key = slot_key(date_label_to_iso[selected_date_label], selected_time)
+        available_members = [
+            m for m in ACTUAL_MEMBERS
+            if all_availability.get(m, {}).get(clicked_key, False)
+        ]
+        unavailable_members = [
+            m for m in ACTUAL_MEMBERS
+            if not all_availability.get(m, {}).get(clicked_key, False)
+        ]
 
-    available_members = [
-        m for m in ACTUAL_MEMBERS
-        if all_availability.get(m, {}).get(selected_key, False)
-    ]
-    unavailable_members = [
-        m for m in ACTUAL_MEMBERS
-        if not all_availability.get(m, {}).get(selected_key, False)
-    ]
-
-    avail_col, unavail_col = st.columns(2)
-    with avail_col:
-        with st.container(border=True):
-            st.markdown(f"**✅ 가능 — {len(available_members)}명**")
-            if available_members:
-                for m in available_members:
-                    st.markdown(f"- {m}")
-            else:
-                st.caption("가능한 인원이 없습니다.")
-    with unavail_col:
-        with st.container(border=True):
-            st.markdown(f"**⬜ 미입력 / 불가 — {len(unavailable_members)}명**")
-            if unavailable_members:
-                for m in unavailable_members:
-                    st.markdown(f"- {m}")
-            else:
-                st.caption("모든 인원이 가능합니다.")
+        st.markdown(f"##### 📋 {col_name} {clicked_time}")
+        avail_col, unavail_col = st.columns(2)
+        with avail_col:
+            with st.container(border=True):
+                st.markdown(f"**✅ 가능 — {len(available_members)}명**")
+                if available_members:
+                    for m in available_members:
+                        st.markdown(f"- {m}")
+                else:
+                    st.caption("가능한 인원이 없습니다.")
+        with unavail_col:
+            with st.container(border=True):
+                st.markdown(f"**⬜ 미입력/불가 — {len(unavailable_members)}명**")
+                if unavailable_members:
+                    for m in unavailable_members:
+                        st.markdown(f"- {m}")
+                else:
+                    st.caption("모든 인원이 가능합니다.")
 
     if is_admin():
         st.divider()
