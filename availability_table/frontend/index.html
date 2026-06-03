@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: transparent;
+    overflow-x: auto;
+  }
+  table {
+    border-collapse: collapse;
+    min-width: max-content;
+    font-size: 13px;
+  }
+  th, td {
+    border: 1px solid rgba(200, 210, 235, 0.5);
+    padding: 5px 10px;
+    text-align: center;
+    white-space: nowrap;
+  }
+  th {
+    background: #f1f4fb;
+    font-weight: 600;
+    color: #374151;
+  }
+  .time-col {
+    background: #f1f4fb !important;
+    font-weight: 600;
+    color: #374151;
+    position: sticky;
+    left: 0;
+    z-index: 1;
+  }
+  .data-cell {
+    cursor: pointer;
+    font-weight: 600;
+    transition: outline 0.1s;
+  }
+  .data-cell:hover {
+    outline: 2px solid rgba(99, 102, 241, 0.7);
+    outline-offset: -2px;
+  }
+  .selected {
+    outline: 3px solid #4f46e5 !important;
+    outline-offset: -3px;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+// Streamlit과 통신 (CDN 없이 직접 postMessage 사용)
+window.parent.postMessage({ type: "streamlit:componentReady", apiVersion: 1 }, "*");
+
+function slotKey(iso, time) {
+  return iso + "|" + time;
+}
+
+function getColor(ratio) {
+  var l = [238, 244, 255], d = [29, 78, 216];
+  var r = Math.round(l[0] + (d[0] - l[0]) * ratio);
+  var g = Math.round(l[1] + (d[1] - l[1]) * ratio);
+  var b = Math.round(l[2] + (d[2] - l[2]) * ratio);
+  return "rgb(" + r + "," + g + "," + b + ")";
+}
+
+var selectedCell = null;
+
+function renderTable(args) {
+  var dates = args.dates;
+  var times = args.times;
+  var all_availability = args.all_availability;
+  var members = args.members;
+  var team_size = args.team_size;
+
+  var root = document.getElementById("root");
+  root.innerHTML = "";
+
+  var table = document.createElement("table");
+
+  // 헤더
+  var thead = document.createElement("thead");
+  var headerRow = document.createElement("tr");
+  var corner = document.createElement("th");
+  corner.textContent = "시간";
+  corner.className = "time-col";
+  headerRow.appendChild(corner);
+  for (var i = 0; i < dates.length; i++) {
+    var th = document.createElement("th");
+    th.textContent = dates[i].label;
+    headerRow.appendChild(th);
+  }
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  // 본문
+  var tbody = document.createElement("tbody");
+  for (var ti = 0; ti < times.length; ti++) {
+    var time = times[ti];
+    var row = document.createElement("tr");
+
+    var timeTd = document.createElement("td");
+    timeTd.textContent = time;
+    timeTd.className = "time-col";
+    row.appendChild(timeTd);
+
+    for (var di = 0; di < dates.length; di++) {
+      var d = dates[di];
+      var key = slotKey(d.iso, time);
+      var count = 0;
+      for (var mi = 0; mi < members.length; mi++) {
+        var slots = all_availability[members[mi]] || {};
+        if (slots[key] === true) count++;
+      }
+      var ratio = Math.min(count / team_size, 1.0);
+
+      var td = document.createElement("td");
+      td.textContent = count + "/" + team_size;
+      td.style.backgroundColor = getColor(ratio);
+      td.style.color = ratio >= 0.55 ? "#ffffff" : "#1e293b";
+      td.style.fontWeight = ratio >= 0.7 ? "700" : "600";
+      td.className = "data-cell";
+
+      (function(cell, iso, t, label) {
+        cell.addEventListener("click", function() {
+          if (selectedCell) selectedCell.classList.remove("selected");
+          selectedCell = cell;
+          cell.classList.add("selected");
+          window.parent.postMessage({
+            type: "streamlit:setComponentValue",
+            value: { date: iso, time: t, label: label }
+          }, "*");
+        });
+      })(td, d.iso, time, d.label);
+
+      row.appendChild(td);
+    }
+    tbody.appendChild(row);
+  }
+  table.appendChild(tbody);
+  root.appendChild(table);
+}
+
+// Streamlit이 보내는 render 이벤트 수신
+window.addEventListener("message", function(e) {
+  if (!e.data || e.data.type !== "streamlit:render") return;
+  var args = e.data.args;
+  if (args && args.dates) {
+    renderTable(args);
+  }
+});
+</script>
+</body>
+</html>
