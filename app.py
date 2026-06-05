@@ -2,7 +2,6 @@ import json
 from datetime import date, timedelta
 from urllib.parse import parse_qs, urlparse
 
-import pandas as pd
 import streamlit as st
 
 import db
@@ -178,53 +177,6 @@ def date_range_columns(start: date, end: date) -> tuple[list[date], list[str]]:
 def dates_for_component(start: date, end: date) -> list[dict]:
     dates, _ = date_range_columns(start, end)
     return [{"iso": d.isoformat(), "label": date_column_label(d)} for d in dates]
-
-
-def build_availability_summary_dfs(
-    start: date, end: date, all_availability: dict[str, dict[str, bool]]
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    _, columns = date_range_columns(start, end)
-    rows = time_slots()
-    display_data: dict[str, list[str]] = {}
-    ratio_data: dict[str, list[float]] = {}
-
-    for col_label in columns:
-        iso = st.session_state.schedule_col_iso[col_label]
-        display_data[col_label] = []
-        ratio_data[col_label] = []
-        for slot in rows:
-            key = slot_key(iso, slot)
-            count = sum(
-                1
-                for member in ACTUAL_MEMBERS
-                if all_availability.get(member, {}).get(key, False)
-            )
-            ratio = min(count / TEAM_SIZE, 1.0)
-            display_data[col_label].append(f"{count}/{TEAM_SIZE}")
-            ratio_data[col_label].append(ratio)
-
-    return pd.DataFrame(display_data, index=rows), pd.DataFrame(ratio_data, index=rows)
-
-
-def style_availability_summary(display_df: pd.DataFrame, ratio_df: pd.DataFrame):
-    def ratio_cell_style(ratio: float) -> str:
-        light = (238, 244, 255)
-        dark = (29, 78, 216)
-        r = int(light[0] + (dark[0] - light[0]) * ratio)
-        g = int(light[1] + (dark[1] - light[1]) * ratio)
-        b = int(light[2] + (dark[2] - light[2]) * ratio)
-        text = "#ffffff" if ratio >= 0.55 else "#1e293b"
-        weight = "700" if ratio >= 0.7 else "600"
-        return (
-            f"background-color: rgb({r}, {g}, {b}); "
-            f"color: {text}; font-weight: {weight}; text-align: center;"
-        )
-
-    def style_column(col: pd.Series) -> list[str]:
-        col_name = col.name
-        return [ratio_cell_style(ratio_df.loc[idx, col_name]) for idx in col.index]
-
-    return display_df.style.apply(style_column, axis=0)
 
 
 def save_slots_to_db(
@@ -632,10 +584,6 @@ def render_schedule_tab() -> None:
     if all_availability is None:
         return
 
-    summary_display_df, summary_ratio_df = build_availability_summary_dfs(
-        start_date, end_date, all_availability
-    )
-    styled_summary = style_availability_summary(summary_display_df, summary_ratio_df)
     st.markdown(
         f"**팀 가능 인원 요약** · 각 칸 = `가능 인원 / {TEAM_SIZE}` "
         "(진할수록 가능 인원 비율이 높음)"

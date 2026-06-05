@@ -244,7 +244,7 @@
 
     window.addEventListener("message", function (event) {
       const data = event.data;
-      if (!data || !data.isStreamlitMessage) return;
+      if (!data) return;
       if (data.type === "streamlit:render" && data.args) {
         renderFromArgs(data.args);
       }

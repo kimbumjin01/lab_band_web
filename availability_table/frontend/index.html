@@ -1,157 +1,162 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: transparent;
-    overflow-x: auto;
-  }
-  table {
-    border-collapse: collapse;
-    min-width: max-content;
-    font-size: 13px;
-  }
-  th, td {
-    border: 1px solid rgba(200, 210, 235, 0.5);
-    padding: 5px 10px;
-    text-align: center;
-    white-space: nowrap;
-  }
-  th {
-    background: #f1f4fb;
-    font-weight: 600;
-    color: #374151;
-  }
-  .time-col {
-    background: #f1f4fb !important;
-    font-weight: 600;
-    color: #374151;
-    position: sticky;
-    left: 0;
-    z-index: 1;
-  }
-  .data-cell {
-    cursor: pointer;
-    font-weight: 600;
-    transition: outline 0.1s;
-  }
-  .data-cell:hover {
-    outline: 2px solid rgba(99, 102, 241, 0.7);
-    outline-offset: -2px;
-  }
-  .selected {
-    outline: 3px solid #4f46e5 !important;
-    outline-offset: -3px;
-  }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 4px 2px 8px;
+      font-family: "Pretendard", -apple-system, BlinkMacSystemFont, sans-serif;
+      background: transparent;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    .wrap {
+      overflow: auto;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      background: #fff;
+      -webkit-overflow-scrolling: touch;
+    }
+    table { border-collapse: collapse; min-width: max-content; }
+    th, td {
+      border: 1px solid #e2e8f0;
+      text-align: center;
+      font-size: 0.72rem;
+      padding: 0;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #f1f5f9;
+      font-weight: 700;
+      padding: 0.45rem 0.35rem;
+      white-space: nowrap;
+    }
+    th.time-col, td.time-col {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+      background: #f8fafc;
+      font-weight: 600;
+      min-width: 3.2rem;
+      padding: 0.35rem;
+    }
+    th.corner { z-index: 3; }
+    td.cell {
+      width: 2.35rem;
+      min-width: 2.35rem;
+      height: 2rem;
+      cursor: pointer;
+      font-size: 0.72rem;
+      font-weight: 600;
+      transition: outline 0.1s;
+    }
+    td.cell:hover {
+      outline: 2px solid rgba(99, 102, 241, 0.7);
+      outline-offset: -2px;
+    }
+    td.cell.selected-cell {
+      outline: 3px solid #4f46e5 !important;
+      outline-offset: -3px;
+    }
+  </style>
 </head>
 <body>
-<div id="root"></div>
+  <div class="wrap" id="tableWrap"></div>
+  <script>
+    /*__BOOTSTRAP__*/
 
-<script>
-// Streamlit과 통신 (CDN 없이 직접 postMessage 사용)
-window.parent.postMessage({ type: "streamlit:componentReady", apiVersion: 1 }, "*");
-
-function slotKey(iso, time) {
-  return iso + "|" + time;
-}
-
-function getColor(ratio) {
-  var l = [238, 244, 255], d = [29, 78, 216];
-  var r = Math.round(l[0] + (d[0] - l[0]) * ratio);
-  var g = Math.round(l[1] + (d[1] - l[1]) * ratio);
-  var b = Math.round(l[2] + (d[2] - l[2]) * ratio);
-  return "rgb(" + r + "," + g + "," + b + ")";
-}
-
-var selectedCell = null;
-
-function renderTable(args) {
-  var dates = args.dates;
-  var times = args.times;
-  var all_availability = args.all_availability;
-  var members = args.members;
-  var team_size = args.team_size;
-
-  var root = document.getElementById("root");
-  root.innerHTML = "";
-
-  var table = document.createElement("table");
-
-  // 헤더
-  var thead = document.createElement("thead");
-  var headerRow = document.createElement("tr");
-  var corner = document.createElement("th");
-  corner.textContent = "시간";
-  corner.className = "time-col";
-  headerRow.appendChild(corner);
-  for (var i = 0; i < dates.length; i++) {
-    var th = document.createElement("th");
-    th.textContent = dates[i].label;
-    headerRow.appendChild(th);
-  }
-  thead.appendChild(headerRow);
-  table.appendChild(thead);
-
-  // 본문
-  var tbody = document.createElement("tbody");
-  for (var ti = 0; ti < times.length; ti++) {
-    var time = times[ti];
-    var row = document.createElement("tr");
-
-    var timeTd = document.createElement("td");
-    timeTd.textContent = time;
-    timeTd.className = "time-col";
-    row.appendChild(timeTd);
-
-    for (var di = 0; di < dates.length; di++) {
-      var d = dates[di];
-      var key = slotKey(d.iso, time);
-      var count = 0;
-      for (var mi = 0; mi < members.length; mi++) {
-        var slots = all_availability[members[mi]] || {};
-        if (slots[key] === true) count++;
-      }
-      var ratio = Math.min(count / team_size, 1.0);
-
-      var td = document.createElement("td");
-      td.textContent = count + "/" + team_size;
-      td.style.backgroundColor = getColor(ratio);
-      td.style.color = ratio >= 0.55 ? "#ffffff" : "#1e293b";
-      td.style.fontWeight = ratio >= 0.7 ? "700" : "600";
-      td.className = "data-cell";
-
-      (function(cell, iso, t, label) {
-        cell.addEventListener("click", function() {
-          if (selectedCell) selectedCell.classList.remove("selected");
-          selectedCell = cell;
-          cell.classList.add("selected");
-          window.parent.postMessage({
-            type: "streamlit:setComponentValue",
-            value: { date: iso, time: t, label: label }
-          }, "*");
-        });
-      })(td, d.iso, time, d.label);
-
-      row.appendChild(td);
+    function sendMessage(msg) {
+      window.parent.postMessage(Object.assign({ isStreamlitMessage: true }, msg), "*");
     }
-    tbody.appendChild(row);
-  }
-  table.appendChild(tbody);
-  root.appendChild(table);
-}
 
-// Streamlit이 보내는 render 이벤트 수신
-window.addEventListener("message", function(e) {
-  if (!e.data || e.data.type !== "streamlit:render") return;
-  var args = e.data.args;
-  if (args && args.dates) {
-    renderTable(args);
-  }
-});
-</script>
+    function setComponentValue(value) {
+      sendMessage({ type: "streamlit:setComponentValue", value: value });
+    }
+
+    function getColor(ratio) {
+      var l = [238, 244, 255], d = [29, 78, 216];
+      return "rgb(" +
+        Math.round(l[0] + (d[0] - l[0]) * ratio) + "," +
+        Math.round(l[1] + (d[1] - l[1]) * ratio) + "," +
+        Math.round(l[2] + (d[2] - l[2]) * ratio) + ")";
+    }
+
+    function slotKey(iso, time) { return iso + "|" + time; }
+
+    var selectedCell = null;
+
+    function renderTable(data) {
+      var dates = data.dates;
+      var times = data.times;
+      var all_availability = data.all_availability;
+      var members = data.members;
+      var team_size = data.team_size;
+
+      var html = "<table><thead><tr><th class='corner time-col'>시간</th>";
+      for (var i = 0; i < dates.length; i++) {
+        html += "<th>" + dates[i].label + "</th>";
+      }
+      html += "</tr></thead><tbody>";
+
+      for (var ti = 0; ti < times.length; ti++) {
+        var time = times[ti];
+        html += "<tr><td class='time-col'>" + time + "</td>";
+        for (var di = 0; di < dates.length; di++) {
+          var d = dates[di];
+          var key = slotKey(d.iso, time);
+          var count = 0;
+          for (var mi = 0; mi < members.length; mi++) {
+            var slots = all_availability[members[mi]] || {};
+            if (slots[key] === true) count++;
+          }
+          var ratio = Math.min(count / team_size, 1.0);
+          var bg = getColor(ratio);
+          var fg = ratio >= 0.55 ? "#ffffff" : "#1e293b";
+          var fw = ratio >= 0.7 ? "700" : "600";
+          html += "<td class='cell'" +
+            " data-date='" + d.iso + "'" +
+            " data-time='" + time + "'" +
+            " data-label='" + d.label + "'" +
+            " style='background:" + bg + ";color:" + fg + ";font-weight:" + fw + "'>" +
+            count + "/" + team_size + "</td>";
+        }
+        html += "</tr>";
+      }
+      html += "</tbody></table>";
+      document.getElementById("tableWrap").innerHTML = html;
+
+      document.querySelectorAll("td.cell").forEach(function(cell) {
+        cell.addEventListener("click", function() {
+          if (selectedCell) selectedCell.classList.remove("selected-cell");
+          selectedCell = cell;
+          cell.classList.add("selected-cell");
+          setComponentValue({
+            date: cell.dataset.date,
+            time: cell.dataset.time,
+            label: cell.dataset.label,
+          });
+        });
+      });
+    }
+
+    if (typeof __BOOTSTRAP__ !== "undefined") {
+      renderTable(__BOOTSTRAP__);
+    }
+
+    window.addEventListener("message", function (event) {
+      var data = event.data;
+      if (!data) return;
+      if (data.type === "streamlit:render" && data.args) {
+        renderTable(data.args);
+      }
+    });
+
+    sendMessage({ type: "streamlit:componentReady", apiVersion: 1 });
+  </script>
 </body>
 </html>

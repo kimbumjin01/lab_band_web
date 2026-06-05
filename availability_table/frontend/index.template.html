@@ -148,6 +148,14 @@
       renderTable(__BOOTSTRAP__);
     }
 
+    window.addEventListener("message", function (event) {
+      var data = event.data;
+      if (!data) return;
+      if (data.type === "streamlit:render" && data.args) {
+        renderTable(data.args);
+      }
+    });
+
     sendMessage({ type: "streamlit:componentReady", apiVersion: 1 });
   </script>
 </body>
