@@ -1,5 +1,6 @@
 import json
 from datetime import date, timedelta
+from html import escape
 from urllib.parse import parse_qs, urlparse
 
 import streamlit as st
@@ -46,6 +47,23 @@ MENU_ICONS = {
     "일정 조정": "📅",
     "합주실 예약": "🎹",
 }
+MENU_THEMES = {
+    "선곡 투표": {
+        "label": "SONG",
+        "accent": "#f43f5e",
+        "accent_soft": "rgba(244, 63, 94, 0.12)",
+    },
+    "일정 조정": {
+        "label": "TIME",
+        "accent": "#2563eb",
+        "accent_soft": "rgba(37, 99, 235, 0.12)",
+    },
+    "합주실 예약": {
+        "label": "ROOM",
+        "accent": "#059669",
+        "accent_soft": "rgba(5, 150, 105, 0.12)",
+    },
+}
 
 HOUR_START = 13
 HOUR_END = 23
@@ -73,6 +91,8 @@ def init_session_state() -> None:
         st.session_state.vote_page = 0
     if "selected_availability_slot" not in st.session_state:
         st.session_state.selected_availability_slot = None
+    if "selected_menu" not in st.session_state:
+        st.session_state.selected_menu = MENU_OPTIONS[0]
 
 
 def is_member_selected() -> bool:
@@ -101,6 +121,102 @@ def authenticated_user() -> str | None:
 
 def can_view_scores() -> bool:
     return is_admin()
+
+
+def role_name() -> str | None:
+    if not is_authenticated():
+        return None
+    if is_admin():
+        return "Admin"
+    if is_guest():
+        return "Guest"
+    return "Member"
+
+
+def render_role_badge() -> None:
+    role = role_name()
+    if not role:
+        return
+
+    user = authenticated_user() or ""
+    st.markdown(
+        f"""
+        <div class="role-badge role-{role.lower()}">
+            <span>{escape(role)}</span>
+            <strong>{escape(user)}</strong>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_section_header(menu: str, title: str, subtitle: str) -> None:
+    theme = MENU_THEMES[menu]
+    st.markdown(
+        f"""
+        <div class="section-header"
+             style="--section-accent:{theme['accent']};
+                    --section-accent-soft:{theme['accent_soft']};">
+            <span class="section-kicker">{escape(theme['label'])}</span>
+            <div>
+                <h2>{escape(title)}</h2>
+                <p>{escape(subtitle)}</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_song_header(song: dict, uploader: str) -> None:
+    notes = str(song.get("notes") or "").strip()
+    notes_html = (
+        f"<p class='song-note'>{escape(notes)}</p>"
+        if notes
+        else ""
+    )
+    st.markdown(
+        f"""
+        <div class="song-head">
+            <span class="song-tag">TRACK</span>
+            <h3>{escape(str(song.get("title", "")))}</h3>
+            <p class="song-meta">등록 {escape(str(uploader))}</p>
+            {notes_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_comment(member: str, created_at: str, content: str) -> None:
+    safe_content = escape(content).replace("\n", "<br>")
+    st.markdown(
+        f"""
+        <div class="comment-row">
+            <div>
+                <strong>{escape(member)}</strong>
+                <span>{escape(created_at[:10])}</span>
+            </div>
+            <p>{safe_content}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_sidebar_menu() -> str:
+    selected = st.session_state.get("selected_menu", MENU_OPTIONS[0])
+    for option in MENU_OPTIONS:
+        clicked = st.button(
+            f"{MENU_ICONS[option]}  {option}",
+            key=f"sidebar_menu_{option}",
+            type="primary" if option == selected else "secondary",
+            use_container_width=True,
+        )
+        if clicked:
+            selected = option
+            st.session_state.selected_menu = option
+    return selected
 
 
 def slot_key(iso_date: str, time_slot: str) -> str:
@@ -246,17 +362,7 @@ def render_sidebar_auth() -> None:
                 st.session_state.authenticated_member = None
                 st.warning("비밀번호가 올바르지 않습니다.")
 
-    if is_authenticated():
-        auth_label = (
-            "Guest 보기 전용 접속 중"
-            if is_guest()
-            else f"{authenticated_user()}님 로그인됨"
-        )
-        st.markdown(
-            f"<p style='color:#a78bfa;font-weight:700;font-size:0.9rem;"
-            f"margin:0.5rem 0 0 0.2rem;'>✓ {auth_label}</p>",
-            unsafe_allow_html=True,
-        )
+    render_role_badge()
 
 
 def render_confirmed_schedules_banner() -> None:
@@ -266,10 +372,25 @@ def render_confirmed_schedules_banner() -> None:
 
     latest = schedules[0]
     date_str = latest["schedule_date"]
-    st.success(
-        f"📌 **다음 합주:** {date_str}  "
-        f"{latest['start_time']} ~ {latest['end_time']}"
-        + (f"  · {latest['note']}" if latest.get("note") else "")
+    note = str(latest.get("note") or "").strip()
+    note_html = (
+        f"<span class='schedule-note'>{escape(note)}</span>"
+        if note
+        else ""
+    )
+    st.markdown(
+        f"""
+        <div class="schedule-banner">
+            <div class="schedule-pin">📌</div>
+            <div class="schedule-copy">
+                <span>다음 합주</span>
+                <strong>{escape(str(date_str))}</strong>
+            </div>
+            <div class="schedule-time">{escape(str(latest['start_time']))} ~ {escape(str(latest['end_time']))}</div>
+            {note_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
     with st.expander(f"전체 확정 일정 보기 ({len(schedules)}건)", expanded=False):
@@ -277,9 +398,14 @@ def render_confirmed_schedules_banner() -> None:
             col1, col2 = st.columns([5, 1])
             with col1:
                 st.markdown(
-                    f"**{s['schedule_date']}**  "
-                    f"{s['start_time']} ~ {s['end_time']}"
-                    + (f"  · {s.get('note', '')}" if s.get("note") else "")
+                    f"""
+                    <div class="schedule-list-row">
+                        <strong>{escape(str(s['schedule_date']))}</strong>
+                        <span>{escape(str(s['start_time']))} ~ {escape(str(s['end_time']))}</span>
+                        {f"<em>{escape(str(s.get('note', '')))}</em>" if s.get("note") else ""}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
                 )
             with col2:
                 if is_admin():
@@ -296,11 +422,11 @@ def render_vote_tab() -> None:
         return
 
     user = authenticated_user()
-    st.subheader("선곡 투표")
     if is_guest():
-        st.caption("Guest는 등록된 곡과 의견을 보기 전용으로 확인할 수 있습니다.")
+        subtitle = "등록된 곡과 의견을 보기 전용으로 확인할 수 있습니다."
     else:
-        st.caption(f"{user}님, 곡을 추가하고 1~5점으로 투표해 보세요.")
+        subtitle = f"{user}님, 곡을 추가하고 1~5점으로 투표해 보세요."
+    render_section_header("선곡 투표", "선곡 투표", subtitle)
 
     with st.spinner("곡 목록 불러오는 중..."):
         songs = load_songs()
@@ -398,10 +524,7 @@ def render_vote_tab() -> None:
         with st.container(border=True):
             header_col, score_col = st.columns([3, 1])
             with header_col:
-                st.markdown(f"### {song['title']}")
-                st.caption(f"등록: **{uploader}**")
-                if song.get("notes"):
-                    st.caption(f"📝 {song['notes']}")
+                render_song_header(song, uploader)
             with score_col:
                 if can_view_scores():
                     if avg is not None:
@@ -446,11 +569,10 @@ def render_vote_tab() -> None:
                     c_col, d_col = st.columns([6, 1])
                     with c_col:
                         display_name = "나" if c["member"] == user else (c["member"] if is_admin() else "익명")
-                        st.markdown(
-                            f"**{display_name}** "
-                            f"<span style='color:#9ca3af;font-size:0.8rem'>"
-                            f"{c['created_at'][:10]}</span>  \n{c['content']}",
-                            unsafe_allow_html=True,
+                        render_comment(
+                            display_name,
+                            str(c.get("created_at", "")),
+                            str(c.get("content", "")),
                         )
                     with d_col:
                         if can_write() and c["member"] == user:
@@ -555,17 +677,17 @@ def render_schedule_tab() -> None:
         return
 
     user = authenticated_user()
-    st.subheader("일정 조정")
     if is_guest():
-        st.caption(
+        subtitle = (
             f"Guest는 팀 가능 인원 요약을 보기 전용으로 확인할 수 있습니다 "
             f"({TEAM_SIZE}명 기준)."
         )
     else:
-        st.caption(
-            f"{user}님, 드래그로 가능한 시간을 선택한 뒤 표 하단 **저장하기**를 눌러주세요. "
+        subtitle = (
+            f"{user}님, 드래그로 가능한 시간을 선택한 뒤 표 하단 저장하기를 눌러주세요. "
             f"팀 요약은 아래에서 확인할 수 있습니다 ({TEAM_SIZE}명 기준)."
         )
+    render_section_header("일정 조정", "일정 조정", subtitle)
 
     today = date.today()
     default_end = today + timedelta(days=27)
@@ -707,8 +829,11 @@ def render_schedule_tab() -> None:
 
 
 def render_booking_tab() -> None:
-    st.subheader("합주실 예약")
-    st.caption("아래 버튼을 눌러 각 합주실 예약 페이지로 이동하세요.")
+    render_section_header(
+        "합주실 예약",
+        "합주실 예약",
+        "자주 쓰는 합주실 예약 페이지를 바로 열 수 있습니다.",
+    )
     for name, url in PRACTICE_ROOMS:
         st.link_button(name, url, use_container_width=True)
         st.markdown("")
@@ -740,7 +865,7 @@ def inject_styles() -> None:
             display: flex;
             flex-direction: column;
             min-height: calc(100vh - 4rem);
-            padding: 0.5rem 0.25rem 1.5rem;
+            padding: 0.5rem 0.7rem 1.5rem;
         }
         [data-testid="stSidebar"] * { color: #ece9f5 !important; }
         [data-testid="stSidebar"] hr {
@@ -753,7 +878,7 @@ def inject_styles() -> None:
         .sidebar-brand {
             font-size: clamp(2.35rem, 9vw, 3.4rem) !important;
             font-weight: 800 !important;
-            letter-spacing: -0.04em;
+            letter-spacing: 0;
             margin: 0 0 0.5rem 0 !important;
             line-height: 1.1 !important;
             background: linear-gradient(125deg, #fff 0%, #ddd6fe 45%, #a78bfa 100%);
@@ -771,51 +896,48 @@ def inject_styles() -> None:
             font-size: clamp(1rem, 3.8vw, 1.12rem) !important;
             color: #9b94b0 !important;
             text-transform: uppercase;
-            letter-spacing: 0.12em;
+            letter-spacing: 0;
             font-weight: 700 !important;
             margin: 0 0 1rem 0.35rem !important;
         }
 
-        /* ── 사이드바 메뉴 라디오 ── */
-        [data-testid="stSidebar"] .stRadio {
-            flex: 1;
-            width: calc(100% + 0.8rem);
-            margin-left: -0.4rem;
-            margin-right: -0.4rem;
-            padding: 0 !important;
-        }
-        [data-testid="stSidebar"] .stRadio > label { display: none; }
-        [data-testid="stSidebar"] .stRadio div[role="radiogroup"] {
-            gap: clamp(0.65rem, 2.5vw, 1rem) !important;
+        /* ── 사이드바 메뉴 버튼 ── */
+        [data-testid="stSidebar"] div:has(> .stButton) {
             width: 100% !important;
             max-width: none !important;
-            display: flex !important;
-            flex-direction: column !important;
-            align-items: stretch !important;
-            padding: 0 !important;
         }
-        [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"] {
-            background: rgba(255, 255, 255, 0.06);
-            border: 1.5px solid rgba(255, 255, 255, 0.12);
-            border-radius: 18px;
-            padding: clamp(1.15rem, 4.5vw, 1.6rem) clamp(1.3rem, 5vw, 1.75rem) !important;
+        [data-testid="stSidebar"] .stButton {
+            width: 100% !important;
+            max-width: none !important;
+            margin: 0 0 0.85rem 0 !important;
+        }
+        [data-testid="stSidebar"] .stButton > button {
+            width: 100% !important;
+            max-width: none !important;
+            min-height: clamp(4.15rem, 7.2vw, 5.2rem);
             display: flex !important;
             align-items: center !important;
-            width: 100% !important;
-            max-width: none !important;
-            box-sizing: border-box !important;
-            min-height: 3.5rem;
-            font-size: clamp(1.35rem, 5.5vw, 1.65rem) !important;
+            justify-content: flex-start !important;
+            text-align: left !important;
+            padding: 1.15rem 1.35rem !important;
+            border-radius: 16px !important;
+            background: rgba(255, 255, 255, 0.065) !important;
+            border: 1.5px solid rgba(255, 255, 255, 0.12);
+            color: #f5f2ff !important;
+            font-size: clamp(1rem, 3.9vw, 1.18rem) !important;
             font-weight: 650 !important;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
             transition: all 0.2s ease !important;
         }
-        [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]:hover {
-            background: rgba(167, 139, 250, 0.15) !important;
-            border-color: rgba(167, 139, 250, 0.35) !important;
+        [data-testid="stSidebar"] .stButton > button:hover {
+            transform: translateY(-1px) !important;
+            background: rgba(167, 139, 250, 0.18) !important;
+            border-color: rgba(196, 181, 253, 0.42) !important;
         }
-        [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]:has(input:checked) {
-            background: linear-gradient(135deg, rgba(124,58,237,0.55), rgba(99,102,241,0.4)) !important;
+        [data-testid="stSidebar"] .stButton > button[kind="primary"] {
+            background: linear-gradient(135deg, rgba(244, 63, 94, 0.82), rgba(99, 102, 241, 0.72)) !important;
             border-color: rgba(196, 181, 253, 0.65) !important;
+            box-shadow: 0 14px 34px rgba(76, 29, 149, 0.34) !important;
         }
 
         /* ── 사이드바 크레딧 ── */
@@ -835,6 +957,38 @@ def inject_styles() -> None:
             font-weight: 700 !important;
         }
 
+        .role-badge {
+            margin: 0.8rem 0 0;
+            padding: 0.75rem 0.85rem;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.13);
+            background: rgba(255, 255, 255, 0.07);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+        .role-badge span {
+            color: #14121f !important;
+            border-radius: 999px;
+            padding: 0.22rem 0.58rem;
+            font-size: 0.76rem;
+            font-weight: 800;
+            background: #ddd6fe;
+        }
+        .role-badge strong {
+            color: #f5f2ff !important;
+            font-size: 0.9rem;
+            font-weight: 750;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .role-admin span { background: #fecdd3; }
+        .role-member span { background: #bfdbfe; }
+        .role-guest span { background: #bbf7d0; }
+
         /* ── 사이드바 입력창 가독성 ── */
         [data-testid="stSidebar"] .stTextInput input {
             color: #1e1a2e !important;
@@ -851,7 +1005,7 @@ def inject_styles() -> None:
             font-size: 0.8rem !important;
             color: #a099bc !important;
             font-weight: 600 !important;
-            letter-spacing: 0.06em !important;
+            letter-spacing: 0 !important;
             text-transform: uppercase;
         }
         [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] > div {
@@ -878,11 +1032,110 @@ def inject_styles() -> None:
         /* ── 메인 제목 ── */
         h1 {
             font-weight: 800 !important;
-            letter-spacing: -0.03em;
+            letter-spacing: 0;
             background: linear-gradient(120deg, #1e1b2e 0%, #5b21b6 50%, #6366f1 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
+        }
+
+        .schedule-banner {
+            display: flex;
+            align-items: center;
+            gap: 0.85rem;
+            flex-wrap: wrap;
+            padding: 1rem 1.15rem;
+            margin: 0.25rem 0 1rem;
+            border-radius: 16px;
+            background:
+                linear-gradient(135deg, rgba(16, 185, 129, 0.14), rgba(37, 99, 235, 0.08)),
+                rgba(255, 255, 255, 0.78);
+            border: 1px solid rgba(16, 185, 129, 0.18);
+            box-shadow: 0 12px 34px rgba(15, 23, 42, 0.06);
+        }
+        .schedule-pin {
+            width: 2.3rem;
+            height: 2.3rem;
+            border-radius: 12px;
+            display: grid;
+            place-items: center;
+            background: rgba(255, 255, 255, 0.78);
+            box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.16);
+        }
+        .schedule-copy {
+            display: flex;
+            flex-direction: column;
+            gap: 0.12rem;
+        }
+        .schedule-copy span {
+            color: #047857;
+            font-size: 0.78rem;
+            font-weight: 800;
+        }
+        .schedule-copy strong {
+            color: #102a43;
+            font-size: 1.06rem;
+            font-weight: 850;
+        }
+        .schedule-time,
+        .schedule-note {
+            border-radius: 999px;
+            padding: 0.42rem 0.78rem;
+            font-weight: 750;
+            background: rgba(255, 255, 255, 0.7);
+            color: #0f172a;
+            border: 1px solid rgba(15, 23, 42, 0.07);
+        }
+        .schedule-note {
+            color: #047857;
+            background: rgba(16, 185, 129, 0.1);
+        }
+        .schedule-list-row {
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+            flex-wrap: wrap;
+            padding: 0.35rem 0;
+        }
+        .schedule-list-row strong { color: #1e1b2e; }
+        .schedule-list-row span { color: #475569; font-weight: 650; }
+        .schedule-list-row em {
+            color: #047857;
+            font-style: normal;
+            font-weight: 650;
+        }
+
+        .section-header {
+            --section-accent: #6366f1;
+            --section-accent-soft: rgba(99, 102, 241, 0.12);
+            display: flex;
+            align-items: flex-start;
+            gap: 0.9rem;
+            padding: 0.2rem 0 0.7rem;
+            margin-top: 0.1rem;
+        }
+        .section-kicker {
+            flex: 0 0 auto;
+            border-radius: 999px;
+            padding: 0.33rem 0.68rem;
+            background: var(--section-accent-soft);
+            color: var(--section-accent);
+            font-size: 0.74rem;
+            font-weight: 850;
+            line-height: 1;
+        }
+        .section-header h2 {
+            margin: 0 !important;
+            color: #1f1738;
+            font-size: clamp(1.35rem, 3.4vw, 1.85rem);
+            font-weight: 850;
+            line-height: 1.2;
+        }
+        .section-header p {
+            margin: 0.25rem 0 0 !important;
+            color: #64748b;
+            font-size: 0.98rem;
+            line-height: 1.5;
         }
 
         /* ── 메인 버튼 ── */
@@ -915,6 +1168,73 @@ def inject_styles() -> None:
         }
         [data-testid="stVerticalBlockBorderWrapper"]:hover {
             box-shadow: 0 6px 28px rgba(124, 58, 237, 0.13) !important;
+        }
+        .song-head {
+            padding: 0.1rem 0 0.25rem;
+        }
+        .song-tag {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 0.24rem 0.58rem;
+            background: rgba(244, 63, 94, 0.11);
+            color: #e11d48;
+            font-size: 0.72rem;
+            font-weight: 850;
+            line-height: 1;
+            margin-bottom: 0.5rem;
+        }
+        .song-head h3 {
+            margin: 0 !important;
+            color: #1e1b2e;
+            font-size: clamp(1.18rem, 2.6vw, 1.55rem);
+            line-height: 1.3;
+            font-weight: 850;
+        }
+        .song-meta {
+            margin: 0.25rem 0 0 !important;
+            color: #7c3aed;
+            font-size: 0.88rem;
+            font-weight: 700;
+        }
+        .song-note {
+            margin: 0.45rem 0 0 !important;
+            display: inline-flex;
+            max-width: 100%;
+            border-radius: 10px;
+            padding: 0.42rem 0.62rem;
+            background: rgba(15, 23, 42, 0.04);
+            color: #475569;
+            font-size: 0.88rem;
+            line-height: 1.45;
+        }
+        .comment-row {
+            padding: 0.58rem 0.68rem;
+            margin: 0.3rem 0;
+            border-radius: 12px;
+            background: rgba(248, 250, 252, 0.9);
+            border: 1px solid rgba(148, 163, 184, 0.16);
+        }
+        .comment-row div {
+            display: flex;
+            align-items: baseline;
+            gap: 0.45rem;
+            flex-wrap: wrap;
+        }
+        .comment-row strong {
+            color: #1e1b2e;
+            font-size: 0.9rem;
+        }
+        .comment-row span {
+            color: #94a3b8;
+            font-size: 0.78rem;
+            font-weight: 650;
+        }
+        .comment-row p {
+            margin: 0.25rem 0 0 !important;
+            color: #334155;
+            font-size: 0.92rem;
+            line-height: 1.55;
         }
 
         /* ── 메트릭 ── */
@@ -987,10 +1307,18 @@ def inject_styles() -> None:
 
         /* ── 링크 버튼 ── */
         .stLinkButton > a {
+            background: linear-gradient(135deg, #059669, #0f766e) !important;
+            color: #ffffff !important;
+            border: none !important;
             padding: 1.1rem 1.25rem !important;
             font-size: 1.08rem !important;
             font-weight: 600 !important;
             border-radius: 14px !important;
+            box-shadow: 0 10px 26px rgba(5, 150, 105, 0.18) !important;
+        }
+        .stLinkButton > a:hover {
+            filter: brightness(1.04);
+            transform: translateY(-1px);
         }
         </style>
         """,
@@ -1015,12 +1343,7 @@ def main() -> None:
         render_sidebar_auth()
         st.divider()
         st.markdown('<p class="sidebar-menu-label">MENU</p>', unsafe_allow_html=True)
-        selected_menu = st.radio(
-            "메뉴",
-            MENU_OPTIONS,
-            format_func=lambda x: f"{MENU_ICONS[x]}  {x}",
-            label_visibility="collapsed",
-        )
+        selected_menu = render_sidebar_menu()
         st.markdown(
             """
             <div class="sidebar-credit-wrap">
