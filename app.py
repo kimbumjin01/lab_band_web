@@ -914,18 +914,18 @@ def inject_styles() -> None:
         [data-testid="stSidebar"] .stButton > button {
             width: 100% !important;
             max-width: none !important;
-            min-height: clamp(4.15rem, 7.2vw, 5.2rem);
+            min-height: clamp(4.75rem, 8vw, 5.8rem);
             display: flex !important;
             align-items: center !important;
             justify-content: flex-start !important;
             text-align: left !important;
-            padding: 1.15rem 1.35rem !important;
+            padding: 1.3rem 1.55rem !important;
             border-radius: 16px !important;
             background: rgba(255, 255, 255, 0.065) !important;
             border: 1.5px solid rgba(255, 255, 255, 0.12);
             color: #f5f2ff !important;
-            font-size: clamp(1rem, 3.9vw, 1.18rem) !important;
-            font-weight: 650 !important;
+            font-size: clamp(1.08rem, 4.2vw, 1.3rem) !important;
+            font-weight: 750 !important;
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
             transition: all 0.2s ease !important;
         }
@@ -965,8 +965,8 @@ def inject_styles() -> None:
             background: rgba(255, 255, 255, 0.07);
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            gap: 0.75rem;
+            justify-content: flex-start;
+            gap: 0.55rem;
         }
         .role-badge span {
             color: #14121f !important;
@@ -978,7 +978,7 @@ def inject_styles() -> None:
         }
         .role-badge strong {
             color: #f5f2ff !important;
-            font-size: 0.9rem;
+            font-size: 0.95rem;
             font-weight: 750;
             min-width: 0;
             overflow: hidden;
