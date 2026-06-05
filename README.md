@@ -12,7 +12,7 @@
 | 일정 조정 | 드래그 가능한 타임테이블, 개인 가능 시간 저장, 팀 가용 인원 히트맵 |
 | 팀장 기능 | 선곡 평균 점수 확인, 확정 합주 일정 등록 및 삭제 |
 | 합주실 예약 | 자주 쓰는 합주실 예약 페이지 바로가기 |
-| 인증 | 팀원 이름과 개인 비밀번호 기반의 간단한 접근 제어 |
+| 인증/권한 | 팀원 비밀번호 로그인, Guest 보기 전용 접속 |
 
 ## 기술 스택
 
@@ -63,6 +63,16 @@ create unique index if not exists availability_member_slot_idx
 on availability (member, slot_date, slot_time);
 ```
 
+## 권한 정책
+
+| 역할 | 대상 | 권한 |
+| --- | --- | --- |
+| Guest | 비밀번호 없이 접속하는 보기 전용 사용자 | 확정 일정, 곡 목록, 댓글, 팀 가능 인원 요약 조회 |
+| Member | 실제 합주 참여자 7명 | 곡 추가, 투표, 댓글 작성, 본인 가능 시간 저장 |
+| Admin | `TEAM_LEADER` | Member 권한 + 평균 점수 확인, 확정 일정 관리 |
+
+`Guest`는 팀 가능 인원 요약을 볼 수 있지만, 선곡 추가, 투표, 댓글 작성, 개인 일정 입력, 일정 확정 등록은 할 수 없습니다.
+
 ## 성능 설계
 
 무료 Streamlit/Supabase 환경을 고려해 DB 호출과 rerun 비용을 줄이는 방향으로 구성했습니다.
@@ -93,9 +103,12 @@ SUPABASE_KEY = "eyJ..."
 "팀원명" = "your-password"
 ```
 
+`Guest`는 비밀번호 없이 접속하므로 `[passwords]`에 추가하지 않아도 됩니다.
+
 ## 운영 메모
 
-- 팀원 목록, 팀장 계정, 팀 인원 기준은 [app.py](app.py)의 `MEMBER_OPTIONS`, `TEAM_LEADER`, `TEAM_SIZE`에서 관리합니다.
+- 실제 합주 참여자는 [app.py](app.py)의 `CORE_MEMBERS`에서 관리합니다. `TEAM_SIZE`는 `CORE_MEMBERS` 길이로 자동 계산됩니다.
+- `Guest`는 보기 전용 사용자이며 팀 가용 인원 계산에는 포함되지 않습니다.
 - Streamlit은 사용자 입력마다 앱을 rerun하므로 DB 쓰기는 반드시 버튼이나 form submit 뒤에 묶는 것이 좋습니다.
 - Supabase 무료 플랜에서는 불필요한 전체 테이블 조회를 피하고, 데이터가 늘어나면 곡 목록과 댓글/투표 조회를 페이지 단위로 좁히는 것이 좋습니다.
 - 비밀번호는 현재 Streamlit secrets에 저장하는 간단한 방식입니다. 외부 공개 범위가 넓어지면 Supabase Auth 또는 해시 기반 검증으로 전환하는 것을 권장합니다.

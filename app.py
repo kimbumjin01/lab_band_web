@@ -25,8 +25,7 @@ footer {visibility: hidden;}
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 NAME_PLACEHOLDER = "-- 이름을 선택하세요 --"
-MEMBER_OPTIONS = [
-    NAME_PLACEHOLDER,
+CORE_MEMBERS = [
     "김범진",
     "이해진",
     "김해찬",
@@ -34,12 +33,12 @@ MEMBER_OPTIONS = [
     "박연수",
     "박준서",
     "정지원",
-    "성민수",
-    "유수연",
 ]
-ACTUAL_MEMBERS = [m for m in MEMBER_OPTIONS if m != NAME_PLACEHOLDER]
+GUEST_USER = "Guest"
+MEMBER_OPTIONS = [NAME_PLACEHOLDER, *CORE_MEMBERS, GUEST_USER]
+ACTUAL_MEMBERS = CORE_MEMBERS
 TEAM_LEADER = "김범진"
-TEAM_SIZE = 7
+TEAM_SIZE = len(CORE_MEMBERS)
 
 MENU_OPTIONS = ["선곡 투표", "일정 조정", "합주실 예약"]
 MENU_ICONS = {
@@ -68,6 +67,8 @@ def init_session_state() -> None:
         st.session_state.authenticated_member = None
     if "global_user" not in st.session_state:
         st.session_state.global_user = NAME_PLACEHOLDER
+    if "last_selected_user" not in st.session_state:
+        st.session_state.last_selected_user = NAME_PLACEHOLDER
     if "vote_page" not in st.session_state:
         st.session_state.vote_page = 0
     if "selected_availability_slot" not in st.session_state:
@@ -82,8 +83,16 @@ def is_authenticated() -> bool:
     return bool(st.session_state.get("authenticated_member"))
 
 
+def is_guest() -> bool:
+    return st.session_state.get("authenticated_member") == GUEST_USER
+
+
 def is_admin() -> bool:
     return st.session_state.get("authenticated_member") == TEAM_LEADER
+
+
+def can_write() -> bool:
+    return is_authenticated() and not is_guest()
 
 
 def authenticated_user() -> str | None:
@@ -208,24 +217,27 @@ def render_login_required() -> None:
 
 
 def render_sidebar_auth() -> None:
-    prev_user = st.session_state.get("global_user", NAME_PLACEHOLDER)
+    prev_user = st.session_state.get("last_selected_user", NAME_PLACEHOLDER)
     selected = st.selectbox("이름 선택", MEMBER_OPTIONS, key="global_user")
 
     if selected != prev_user:
         st.session_state.authenticated_member = None
+        st.session_state.pw_input = ""
+        st.session_state.last_selected_user = selected
 
-    # 항상 표시 (이름 선택 전에도)
-    password = st.text_input(
-        "비밀번호 입력",
-        type="password",
-        key="pw_input",
-        placeholder="비밀번호를 입력하세요",
-    )
-
-    if password:
-        if selected == NAME_PLACEHOLDER:
-            st.warning("이름을 먼저 선택해 주세요.")
-        else:
+    if selected == GUEST_USER:
+        st.session_state.authenticated_member = GUEST_USER
+        st.caption("Guest는 비밀번호 없이 보기 전용으로 접속합니다.")
+    elif selected == NAME_PLACEHOLDER:
+        st.caption("팀원은 비밀번호로 로그인하고, Guest는 보기 전용입니다.")
+    else:
+        password = st.text_input(
+            "비밀번호 입력",
+            type="password",
+            key="pw_input",
+            placeholder="비밀번호를 입력하세요",
+        )
+        if password:
             passwords = dict(st.secrets.get("passwords", {}))
             expected = passwords.get(selected)
             if expected and password == expected:
@@ -235,9 +247,14 @@ def render_sidebar_auth() -> None:
                 st.warning("비밀번호가 올바르지 않습니다.")
 
     if is_authenticated():
+        auth_label = (
+            "Guest 보기 전용 접속 중"
+            if is_guest()
+            else f"{authenticated_user()}님 로그인됨"
+        )
         st.markdown(
             f"<p style='color:#a78bfa;font-weight:700;font-size:0.9rem;"
-            f"margin:0.5rem 0 0 0.2rem;'>✓ {authenticated_user()}님 로그인됨</p>",
+            f"margin:0.5rem 0 0 0.2rem;'>✓ {auth_label}</p>",
             unsafe_allow_html=True,
         )
 
@@ -280,53 +297,63 @@ def render_vote_tab() -> None:
 
     user = authenticated_user()
     st.subheader("선곡 투표")
-    st.caption(f"{user}님, 곡을 추가하고 1~5점으로 투표해 보세요.")
+    if is_guest():
+        st.caption("Guest는 등록된 곡과 의견을 보기 전용으로 확인할 수 있습니다.")
+    else:
+        st.caption(f"{user}님, 곡을 추가하고 1~5점으로 투표해 보세요.")
 
     with st.spinner("곡 목록 불러오는 중..."):
         songs = load_songs()
     if songs is None:
         return
 
-    with st.expander("곡 추가", expanded=len(songs) == 0):
-        with st.form("add_song_form", clear_on_submit=True):
-            st.caption(f"등록자: **{user}** (상단에서 선택한 이름)")
-            title = st.text_input("곡 제목", placeholder="예: 봄날")
-            youtube_url = st.text_input(
-                "유튜브 링크",
-                placeholder="https://www.youtube.com/watch?v=...",
-            )
-            notes = st.text_area(
-                "특이사항/비고",
-                placeholder="예: 원키 말고 반키 낮춰서, 일렉 솔로 주의 등",
-                max_chars=200,
-                height=80,
-            )
-            submitted = st.form_submit_button("목록에 추가", use_container_width=True)
-            if submitted:
-                if not title.strip():
-                    st.warning("곡 제목을 입력해 주세요.")
-                elif not youtube_url.strip():
-                    st.warning("유튜브 링크를 입력해 주세요.")
-                else:
-                    with st.spinner("저장 중..."):
-                        ok = db.add_song(
-                            title.strip(),
-                            youtube_embed_url(youtube_url),
-                            user,
-                            notes,
-                        )
-                    if ok:
-                        st.success(f"{user}님이 「{title.strip()}」을(를) 추가했습니다.")
-                        st.session_state.vote_page = 0
-                        after_write()
+    if can_write():
+        with st.expander("곡 추가", expanded=len(songs) == 0):
+            with st.form("add_song_form", clear_on_submit=True):
+                st.caption(f"등록자: **{user}** (상단에서 선택한 이름)")
+                title = st.text_input("곡 제목", placeholder="예: 봄날")
+                youtube_url = st.text_input(
+                    "유튜브 링크",
+                    placeholder="https://www.youtube.com/watch?v=...",
+                )
+                notes = st.text_area(
+                    "특이사항/비고",
+                    placeholder="예: 원키 말고 반키 낮춰서, 일렉 솔로 주의 등",
+                    max_chars=200,
+                    height=80,
+                )
+                submitted = st.form_submit_button("목록에 추가", use_container_width=True)
+                if submitted:
+                    if not title.strip():
+                        st.warning("곡 제목을 입력해 주세요.")
+                    elif not youtube_url.strip():
+                        st.warning("유튜브 링크를 입력해 주세요.")
+                    else:
+                        with st.spinner("저장 중..."):
+                            ok = db.add_song(
+                                title.strip(),
+                                youtube_embed_url(youtube_url),
+                                user,
+                                notes,
+                            )
+                        if ok:
+                            st.success(
+                                f"{user}님이 「{title.strip()}」을(를) 추가했습니다."
+                            )
+                            st.session_state.vote_page = 0
+                            after_write()
 
     if not songs:
-        st.info("아직 등록된 곡이 없습니다. 위 폼에서 곡을 추가해 주세요.")
+        if can_write():
+            st.info("아직 등록된 곡이 없습니다. 위 폼에서 곡을 추가해 주세요.")
+        else:
+            st.info("아직 등록된 곡이 없습니다.")
         return
 
-    # ── 배치 로딩 (쿼리 3번으로 고정) ──
+    # ── 배치 로딩 ──
     with st.spinner("데이터 불러오는 중..."):
-        all_votes = load_all_votes() or {}
+        should_load_votes = can_write() or can_view_scores()
+        all_votes = (load_all_votes() or {}) if should_load_votes else {}
         all_comments = load_all_comments() or {}
 
     # ── 페이지네이션 ──
@@ -388,26 +415,29 @@ def render_vote_tab() -> None:
             with video_col:
                 st.video(song["url"])
             with vote_col:
-                default_score = int(my_score) if my_score is not None else 3
-                score = st.slider(
-                    "점수 (1~5점)",
-                    min_value=1,
-                    max_value=5,
-                    value=default_score,
-                    key=f"score_{song_id}_{user}",
-                )
-                if st.button(
-                    "투표하기",
-                    key=f"submit_vote_{song_id}",
-                    use_container_width=True,
-                ):
-                    with st.spinner("저장 중..."):
-                        ok = db.upsert_vote(song_id, user, score)
-                    if ok:
-                        st.toast(f"{user}님이 「{song['title']}」에 {score}점 투표!")
-                        after_write()
-                if my_score is not None:
-                    st.caption(f"내 투표: {my_score}점 (변경 시 다시 제출)")
+                if can_write():
+                    default_score = int(my_score) if my_score is not None else 3
+                    score = st.slider(
+                        "점수 (1~5점)",
+                        min_value=1,
+                        max_value=5,
+                        value=default_score,
+                        key=f"score_{song_id}_{user}",
+                    )
+                    if st.button(
+                        "투표하기",
+                        key=f"submit_vote_{song_id}",
+                        use_container_width=True,
+                    ):
+                        with st.spinner("저장 중..."):
+                            ok = db.upsert_vote(song_id, user, score)
+                        if ok:
+                            st.toast(f"{user}님이 「{song['title']}」에 {score}점 투표!")
+                            after_write()
+                    if my_score is not None:
+                        st.caption(f"내 투표: {my_score}점 (변경 시 다시 제출)")
+                else:
+                    st.info("Guest는 투표할 수 없습니다.")
 
             # ── 댓글 ──
             st.markdown("💬 **의견**")
@@ -423,7 +453,7 @@ def render_vote_tab() -> None:
                             unsafe_allow_html=True,
                         )
                     with d_col:
-                        if c["member"] == user:
+                        if can_write() and c["member"] == user:
                             if st.button(
                                 "🗑️",
                                 key=f"del_comment_{c['id']}",
@@ -433,27 +463,33 @@ def render_vote_tab() -> None:
                                 after_write()
                 st.divider()
             else:
-                st.caption("아직 의견이 없습니다. 첫 번째로 남겨보세요!")
+                if can_write():
+                    st.caption("아직 의견이 없습니다. 첫 번째로 남겨보세요!")
+                else:
+                    st.caption("아직 의견이 없습니다.")
 
-            with st.form(key=f"comment_form_{song_id}", clear_on_submit=True):
-                new_comment = st.text_area(
-                    "의견 작성",
-                    placeholder="이 곡에 대한 의견을 자유롭게 남겨주세요.",
-                    max_chars=300,
-                    height=80,
-                    label_visibility="collapsed",
-                )
-                if st.form_submit_button("등록", use_container_width=True):
-                    if not new_comment.strip():
-                        st.warning("내용을 입력해 주세요.")
-                    else:
-                        ok = db.add_comment(song_id, user, new_comment)
-                        if ok:
-                            st.toast("의견이 등록되었습니다!")
-                            after_write()
+            if can_write():
+                with st.form(key=f"comment_form_{song_id}", clear_on_submit=True):
+                    new_comment = st.text_area(
+                        "의견 작성",
+                        placeholder="이 곡에 대한 의견을 자유롭게 남겨주세요.",
+                        max_chars=300,
+                        height=80,
+                        label_visibility="collapsed",
+                    )
+                    if st.form_submit_button("등록", use_container_width=True):
+                        if not new_comment.strip():
+                            st.warning("내용을 입력해 주세요.")
+                        else:
+                            ok = db.add_comment(song_id, user, new_comment)
+                            if ok:
+                                st.toast("의견이 등록되었습니다!")
+                                after_write()
+            else:
+                st.caption("Guest는 의견을 작성할 수 없습니다.")
 
             # ── 본인 곡 수정/삭제 ──
-            if uploader == user:
+            if can_write() and uploader == user:
                 with st.expander("✏️ 내 곡 수정 / 삭제", expanded=False):
                     with st.form(key=f"edit_song_{song_id}"):
                         new_title = st.text_input(
@@ -520,10 +556,16 @@ def render_schedule_tab() -> None:
 
     user = authenticated_user()
     st.subheader("일정 조정")
-    st.caption(
-        f"{user}님, 드래그로 가능한 시간을 선택한 뒤 표 하단 **저장하기**를 눌러주세요. "
-        f"팀 요약은 아래에서 확인할 수 있습니다 ({TEAM_SIZE}명 기준)."
-    )
+    if is_guest():
+        st.caption(
+            f"Guest는 팀 가능 인원 요약을 보기 전용으로 확인할 수 있습니다 "
+            f"({TEAM_SIZE}명 기준)."
+        )
+    else:
+        st.caption(
+            f"{user}님, 드래그로 가능한 시간을 선택한 뒤 표 하단 **저장하기**를 눌러주세요. "
+            f"팀 요약은 아래에서 확인할 수 있습니다 ({TEAM_SIZE}명 기준)."
+        )
 
     today = date.today()
     default_end = today + timedelta(days=27)
@@ -541,42 +583,46 @@ def render_schedule_tab() -> None:
     if (end_date - start_date).days + 1 > 28:
         st.warning("선택 범위가 28일을 넘습니다. 표가 넓어질 수 있습니다.")
 
-    with st.spinner("내 일정 불러오는 중..."):
-        member_slots = load_member_availability(user, start_date, end_date)
-    if member_slots is None:
-        return
-
     dates_payload = dates_for_component(start_date, end_date)
     times_payload = time_slots()
-    selected_payload = {k: bool(v) for k, v in member_slots.items() if v}
-
-    st.markdown(f"**{user}님의 가능 시간** · 드래그로 선택")
 
     if not dates_payload:
         st.warning("선택한 일정 범위에 날짜가 없습니다.")
         return
 
-    component_key = f"drag_{user}_{start_date}_{end_date}"
-    component_result = drag_schedule_timetable(
-        dates=dates_payload,
-        times=times_payload,
-        selected=selected_payload,
-        key=component_key,
-    )
+    if can_write():
+        with st.spinner("내 일정 불러오는 중..."):
+            member_slots = load_member_availability(user, start_date, end_date)
+        if member_slots is None:
+            return
 
-    if component_result and component_result.get("action") == "save":
-        new_slots = component_result.get("slots", {})
-        save_fingerprint = json.dumps(new_slots, sort_keys=True, default=str)
-        if st.session_state.get("last_schedule_save") != save_fingerprint:
-            with st.spinner(
-                "저장 중... 페이지를 닫거나 새로고침하지 마세요. "
-                "저장이 끝날 때까지 기다려 주세요."
-            ):
-                ok = save_slots_to_db(user, new_slots, member_slots)
-            if ok:
-                st.session_state.last_schedule_save = save_fingerprint
-                st.success("일정이 저장되었습니다.")
-                after_write()
+        selected_payload = {k: bool(v) for k, v in member_slots.items() if v}
+
+        st.markdown(f"**{user}님의 가능 시간** · 드래그로 선택")
+
+        component_key = f"drag_{user}_{start_date}_{end_date}"
+        component_result = drag_schedule_timetable(
+            dates=dates_payload,
+            times=times_payload,
+            selected=selected_payload,
+            key=component_key,
+        )
+
+        if component_result and component_result.get("action") == "save":
+            new_slots = component_result.get("slots", {})
+            save_fingerprint = json.dumps(new_slots, sort_keys=True, default=str)
+            if st.session_state.get("last_schedule_save") != save_fingerprint:
+                with st.spinner(
+                    "저장 중... 페이지를 닫거나 새로고침하지 마세요. "
+                    "저장이 끝날 때까지 기다려 주세요."
+                ):
+                    ok = save_slots_to_db(user, new_slots, member_slots)
+                if ok:
+                    st.session_state.last_schedule_save = save_fingerprint
+                    st.success("일정이 저장되었습니다.")
+                    after_write()
+    else:
+        st.info("Guest는 개인 가능 시간을 입력하거나 저장할 수 없습니다.")
 
     st.divider()
     with st.spinner("팀 일정 불러오는 중..."):
