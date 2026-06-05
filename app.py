@@ -41,13 +41,19 @@ ACTUAL_MEMBERS = CORE_MEMBERS
 TEAM_LEADER = "김범진"
 TEAM_SIZE = len(CORE_MEMBERS)
 
-MENU_OPTIONS = ["선곡 투표", "일정 조정", "합주실 예약"]
+MENU_OPTIONS = ["홈", "선곡 투표", "일정 조정", "합주실 예약"]
 MENU_ICONS = {
+    "홈": "🏠",
     "선곡 투표": "🎵",
     "일정 조정": "📅",
     "합주실 예약": "🎹",
 }
 MENU_THEMES = {
+    "홈": {
+        "label": "HOME",
+        "accent": "#7c3aed",
+        "accent_soft": "rgba(124, 58, 237, 0.12)",
+    },
     "선곡 투표": {
         "label": "SONG",
         "accent": "#f43f5e",
@@ -93,6 +99,14 @@ def init_session_state() -> None:
         st.session_state.selected_availability_slot = None
     if "selected_menu" not in st.session_state:
         st.session_state.selected_menu = MENU_OPTIONS[0]
+    elif st.session_state.selected_menu not in MENU_OPTIONS:
+        st.session_state.selected_menu = MENU_OPTIONS[0]
+    if "song_filter" not in st.session_state:
+        st.session_state.song_filter = "전체"
+    if "song_sort" not in st.session_state:
+        st.session_state.song_sort = "최신순"
+    if "login_user" not in st.session_state:
+        st.session_state.login_user = NAME_PLACEHOLDER
 
 
 def is_member_selected() -> bool:
@@ -204,8 +218,29 @@ def render_comment(member: str, created_at: str, content: str) -> None:
     )
 
 
+def render_dashboard_card(
+    label: str,
+    value: str,
+    caption: str,
+    accent: str = "#7c3aed",
+) -> None:
+    st.markdown(
+        f"""
+        <div class="dashboard-card" style="--dash-accent:{accent};">
+            <span>{escape(label)}</span>
+            <strong>{escape(value)}</strong>
+            <p>{escape(caption)}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_sidebar_menu() -> str:
     selected = st.session_state.get("selected_menu", MENU_OPTIONS[0])
+    if selected not in MENU_OPTIONS:
+        selected = MENU_OPTIONS[0]
+        st.session_state.selected_menu = selected
     for option in MENU_OPTIONS:
         clicked = st.button(
             f"{MENU_ICONS[option]}  {option}",
@@ -217,6 +252,90 @@ def render_sidebar_menu() -> str:
             selected = option
             st.session_state.selected_menu = option
     return selected
+
+
+def prewarm_app_cache() -> None:
+    """로그인 전 대기 시간에 자주 쓰는 데이터를 캐시에 올린다."""
+    today = date.today()
+    default_end = today + timedelta(days=27)
+    db.get_confirmed_schedules()
+    load_songs()
+    load_all_votes()
+    load_all_comments()
+    load_all_availability(today, default_end)
+
+
+def authenticate_member(selected: str, password: str) -> bool:
+    passwords = dict(st.secrets.get("passwords", {}))
+    expected = passwords.get(selected)
+    if expected and password == expected:
+        st.session_state.authenticated_member = selected
+        st.session_state.global_user = selected
+        st.session_state.last_selected_user = selected
+        st.session_state.selected_menu = "홈"
+        return True
+    return False
+
+
+def authenticate_guest() -> None:
+    st.session_state.authenticated_member = GUEST_USER
+    st.session_state.global_user = GUEST_USER
+    st.session_state.last_selected_user = GUEST_USER
+    st.session_state.selected_menu = "홈"
+
+
+def render_login_page() -> None:
+    st.markdown(
+        """
+        <div class="login-shell">
+            <div class="login-card">
+                <span class="login-kicker">LAB A TEAM</span>
+                <h1>합주 관리 로그인</h1>
+                <p>팀원은 비밀번호로 로그인하고, Guest는 보기 전용으로 접속할 수 있습니다.</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    left, right = st.columns([1.1, 0.9])
+    with left:
+        with st.form("login_form"):
+            selected = st.selectbox(
+                "이름 선택",
+                [NAME_PLACEHOLDER, *CORE_MEMBERS],
+                key="login_user",
+            )
+            password = st.text_input(
+                "비밀번호 입력",
+                type="password",
+                placeholder="비밀번호를 입력하세요",
+            )
+            submitted = st.form_submit_button("로그인", use_container_width=True)
+            if submitted:
+                if selected == NAME_PLACEHOLDER:
+                    st.warning("이름을 먼저 선택해 주세요.")
+                elif authenticate_member(selected, password):
+                    st.rerun()
+                else:
+                    st.warning("비밀번호가 올바르지 않습니다.")
+
+    with right:
+        st.markdown(
+            """
+            <div class="guest-panel">
+                <strong>Guest</strong>
+                <p>선곡, 댓글, 팀 가능 인원 요약을 보기 전용으로 확인합니다.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Guest로 보기", use_container_width=True):
+            authenticate_guest()
+            st.rerun()
+
+    with st.spinner("앱 데이터를 미리 준비하는 중..."):
+        prewarm_app_cache()
 
 
 def slot_key(iso_date: str, time_slot: str) -> str:
@@ -279,6 +398,137 @@ def song_average(votes: dict[str, int]) -> float | None:
     if not votes:
         return None
     return sum(votes.values()) / len(votes)
+
+
+def core_votes(votes: dict[str, int]) -> dict[str, int]:
+    return {
+        member: int(score)
+        for member, score in votes.items()
+        if member in CORE_MEMBERS
+    }
+
+
+def missing_voters(votes: dict[str, int]) -> list[str]:
+    scored = core_votes(votes)
+    return [member for member in CORE_MEMBERS if member not in scored]
+
+
+def song_average_core(votes: dict[str, int]) -> float | None:
+    return song_average(core_votes(votes))
+
+
+def vote_count_core(votes: dict[str, int]) -> int:
+    return len(core_votes(votes))
+
+
+def sort_score_value(song: dict, all_votes: dict[int, dict[str, int]], user: str) -> int:
+    votes = all_votes.get(int(song["id"]), {})
+    score = votes.get(user)
+    return int(score) if score is not None else -1
+
+
+def filter_and_sort_songs(
+    songs: list[dict],
+    all_votes: dict[int, dict[str, int]],
+    all_comments: dict[int, list[dict]],
+    user: str,
+    filter_mode: str,
+    sort_mode: str,
+) -> list[dict]:
+    filtered = list(songs)
+
+    if filter_mode == "내가 미투표":
+        filtered = [
+            song for song in filtered
+            if user not in all_votes.get(int(song["id"]), {})
+        ]
+    elif filter_mode == "내가 투표한 곡":
+        filtered = [
+            song for song in filtered
+            if user in all_votes.get(int(song["id"]), {})
+        ]
+    elif filter_mode == "댓글 있는 곡":
+        filtered = [
+            song for song in filtered
+            if all_comments.get(int(song["id"]), [])
+        ]
+
+    if sort_mode == "제목순":
+        filtered.sort(key=lambda song: str(song.get("title", "")).lower())
+    elif sort_mode == "내 점수 높은순":
+        filtered.sort(
+            key=lambda song: (
+                sort_score_value(song, all_votes, user),
+                str(song.get("created_at", "")),
+            ),
+            reverse=True,
+        )
+    elif sort_mode == "내 점수 낮은순":
+        filtered.sort(
+            key=lambda song: (
+                sort_score_value(song, all_votes, user) < 0,
+                sort_score_value(song, all_votes, user),
+                str(song.get("created_at", "")),
+            )
+        )
+    elif sort_mode == "평균 점수 높은순":
+        filtered.sort(
+            key=lambda song: (
+                song_average_core(all_votes.get(int(song["id"]), {})) is not None,
+                song_average_core(all_votes.get(int(song["id"]), {})) or 0,
+                vote_count_core(all_votes.get(int(song["id"]), {})),
+            ),
+            reverse=True,
+        )
+    elif sort_mode == "평균 점수 낮은순":
+        filtered.sort(
+            key=lambda song: (
+                song_average_core(all_votes.get(int(song["id"]), {})) is None,
+                song_average_core(all_votes.get(int(song["id"]), {})) or 0,
+            )
+        )
+    elif sort_mode == "투표 적은순":
+        filtered.sort(
+            key=lambda song: (
+                vote_count_core(all_votes.get(int(song["id"]), {})),
+                str(song.get("created_at", "")),
+            )
+        )
+    else:
+        filtered.sort(key=lambda song: str(song.get("created_at", "")), reverse=True)
+
+    return filtered
+
+
+def top_availability_slots(
+    start: date,
+    end: date,
+    all_availability: dict[str, dict[str, bool]],
+    limit: int = 3,
+) -> list[dict]:
+    candidates: list[dict] = []
+    days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
+    for d in days:
+        iso = d.isoformat()
+        for slot in time_slots():
+            key = slot_key(iso, slot)
+            members = [
+                member for member in CORE_MEMBERS
+                if all_availability.get(member, {}).get(key, False)
+            ]
+            if members:
+                candidates.append(
+                    {
+                        "date": d,
+                        "label": date_column_label(d),
+                        "time": slot,
+                        "count": len(members),
+                        "members": members,
+                    }
+                )
+
+    candidates.sort(key=lambda item: (-item["count"], item["date"], item["time"]))
+    return candidates[:limit]
 
 
 def time_slots() -> list[str]:
@@ -416,6 +666,126 @@ def render_confirmed_schedules_banner() -> None:
         st.divider()
 
 
+def render_home_tab() -> None:
+    if not is_authenticated():
+        render_login_required()
+        return
+
+    user = authenticated_user() or ""
+    if is_guest():
+        subtitle = "Guest 보기 전용으로 팀 운영 현황을 빠르게 확인합니다."
+    elif is_admin():
+        subtitle = "팀장 관점에서 투표와 일정 입력 현황을 한눈에 확인합니다."
+    else:
+        subtitle = f"{user}님이 아직 해야 할 투표와 일정 입력 상태를 확인합니다."
+    render_section_header("홈", "홈", subtitle)
+
+    today = date.today()
+    default_end = today + timedelta(days=27)
+
+    with st.spinner("대시보드 불러오는 중..."):
+        schedules = db.get_confirmed_schedules() or []
+        songs = load_songs() or []
+        all_availability = load_all_availability(today, default_end) or {}
+        all_votes = (load_all_votes() or {}) if can_write() or is_admin() else {}
+
+    latest = schedules[0] if schedules else None
+    if latest:
+        next_value = str(latest["schedule_date"])
+        next_caption = f"{latest['start_time']} ~ {latest['end_time']}"
+    else:
+        next_value = "미정"
+        next_caption = "확정된 합주 일정이 없습니다."
+
+    cols = st.columns(4)
+    with cols[0]:
+        render_dashboard_card("다음 합주", next_value, next_caption, "#059669")
+    with cols[1]:
+        render_dashboard_card("등록 곡", f"{len(songs)}곡", "선곡 투표 후보", "#f43f5e")
+
+    if can_write():
+        voted_count = sum(
+            1 for song in songs
+            if user in all_votes.get(int(song["id"]), {})
+        )
+        pending_count = max(len(songs) - voted_count, 0)
+        with cols[2]:
+            render_dashboard_card(
+                "내 투표",
+                f"{voted_count}/{len(songs)}",
+                f"미투표 {pending_count}곡",
+                "#7c3aed",
+            )
+        member_slots = load_member_availability(user, today, default_end) or {}
+        selected_slots = sum(1 for value in member_slots.values() if value)
+        with cols[3]:
+            render_dashboard_card(
+                "내 일정",
+                f"{selected_slots}칸",
+                "최근 4주 가능 시간",
+                "#2563eb",
+            )
+    else:
+        with cols[2]:
+            render_dashboard_card("권한", "Guest", "보기 전용 접속", "#059669")
+        with cols[3]:
+            render_dashboard_card("팀 기준", f"{TEAM_SIZE}명", "핵심 참여 멤버", "#2563eb")
+
+    st.divider()
+    recs = top_availability_slots(today, default_end, all_availability, limit=3)
+    st.markdown("### 추천 가능 시간")
+    if recs:
+        rec_cols = st.columns(len(recs))
+        for idx, rec in enumerate(recs):
+            with rec_cols[idx]:
+                render_dashboard_card(
+                    f"TOP {idx + 1}",
+                    f"{rec['label']} {rec['time']}",
+                    f"{rec['count']}/{TEAM_SIZE}명 가능",
+                    "#2563eb",
+                )
+    else:
+        st.info("아직 추천할 수 있는 팀 가능 시간이 없습니다.")
+
+    if is_admin() and songs:
+        st.divider()
+        st.markdown("### 팀장 요약")
+        admin_left, admin_right = st.columns(2)
+        ranked = []
+        for song in songs:
+            sid = int(song["id"])
+            votes = all_votes.get(sid, {})
+            avg = song_average_core(votes)
+            if avg is not None:
+                ranked.append((avg, vote_count_core(votes), song))
+        ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+
+        with admin_left:
+            with st.container(border=True):
+                st.markdown("**평균 상위 곡 TOP 5**")
+                if ranked:
+                    for idx, (avg, vote_count, song) in enumerate(ranked[:5], start=1):
+                        st.markdown(
+                            f"{idx}. **{song['title']}** · {avg:.1f}/5 · {vote_count}명"
+                        )
+                else:
+                    st.caption("아직 투표된 곡이 없습니다.")
+
+        missing_by_member = {member: 0 for member in CORE_MEMBERS}
+        for song in songs:
+            votes = all_votes.get(int(song["id"]), {})
+            for member in missing_voters(votes):
+                missing_by_member[member] += 1
+        with admin_right:
+            with st.container(border=True):
+                st.markdown("**미투표 요약**")
+                for member, count in sorted(
+                    missing_by_member.items(),
+                    key=lambda item: (-item[1], item[0]),
+                ):
+                    st.markdown(f"- {member}: {count}곡")
+
+
 def render_vote_tab() -> None:
     if not is_authenticated():
         render_login_required()
@@ -482,12 +852,49 @@ def render_vote_tab() -> None:
         all_votes = (load_all_votes() or {}) if should_load_votes else {}
         all_comments = load_all_comments() or {}
 
+    filter_options = ["전체", "댓글 있는 곡"]
+    if can_write():
+        filter_options = ["전체", "내가 미투표", "내가 투표한 곡", "댓글 있는 곡"]
+    sort_options = ["최신순", "제목순"]
+    if can_write():
+        sort_options.extend(["내 점수 높은순", "내 점수 낮은순"])
+    if is_admin():
+        sort_options.extend(["평균 점수 높은순", "평균 점수 낮은순", "투표 적은순"])
+
+    if st.session_state.song_filter not in filter_options:
+        st.session_state.song_filter = "전체"
+    if st.session_state.song_sort not in sort_options:
+        st.session_state.song_sort = "최신순"
+
+    control_left, control_right = st.columns(2)
+    with control_left:
+        filter_mode = st.selectbox(
+            "보기 필터",
+            filter_options,
+            key="song_filter",
+        )
+    with control_right:
+        sort_mode = st.selectbox(
+            "정렬",
+            sort_options,
+            key="song_sort",
+        )
+
+    display_songs = filter_and_sort_songs(
+        songs,
+        all_votes,
+        all_comments,
+        user or "",
+        filter_mode,
+        sort_mode,
+    )
+
     # ── 페이지네이션 ──
-    total = len(songs)
+    total = len(display_songs)
     total_pages = max(1, (total + SONGS_PER_PAGE - 1) // SONGS_PER_PAGE)
     page = min(st.session_state.vote_page, total_pages - 1)
     st.session_state.vote_page = page
-    page_songs = songs[page * SONGS_PER_PAGE : (page + 1) * SONGS_PER_PAGE]
+    page_songs = display_songs[page * SONGS_PER_PAGE : (page + 1) * SONGS_PER_PAGE]
 
     st.divider()
 
@@ -500,7 +907,8 @@ def render_vote_tab() -> None:
     with nav_mid:
         st.markdown(
             f"<p style='text-align:center;font-weight:600;'>"
-            f"{page + 1} / {total_pages} 페이지 &nbsp;·&nbsp; 전체 {total}곡"
+            f"{page + 1} / {total_pages} 페이지 &nbsp;·&nbsp; 표시 {total}곡"
+            f" &nbsp;·&nbsp; 전체 {len(songs)}곡"
             f"</p>",
             unsafe_allow_html=True,
         )
@@ -511,15 +919,21 @@ def render_vote_tab() -> None:
 
     st.divider()
 
+    if not page_songs:
+        st.info("현재 필터 조건에 맞는 곡이 없습니다.")
+        return
+
     for song in page_songs:
         song_id = int(song["id"])
-        votes = all_votes.get(song_id, {})
+        raw_votes = all_votes.get(song_id, {})
+        votes = core_votes(raw_votes)
         comments = all_comments.get(song_id, [])
 
-        avg = song_average(votes)
-        vote_count = len(votes)
+        avg = song_average_core(raw_votes)
+        vote_count = vote_count_core(raw_votes)
+        missing = missing_voters(raw_votes)
         uploader = song.get("uploaded_by", "미상")
-        my_score = votes.get(user)
+        my_score = raw_votes.get(user)
 
         with st.container(border=True):
             header_col, score_col = st.columns([3, 1])
@@ -531,6 +945,10 @@ def render_vote_tab() -> None:
                         st.metric("평균 점수", f"{avg:.1f} / 5", f"{vote_count}명 투표")
                     else:
                         st.metric("평균 점수", "—", "투표 없음")
+                    if missing:
+                        st.caption(f"미투표 {len(missing)}명: {', '.join(missing)}")
+                    else:
+                        st.caption("전원 투표 완료")
                 else:
                     st.metric("평균 점수", "? / 5", "팀장 로그인 후 공개")
 
@@ -609,6 +1027,20 @@ def render_vote_tab() -> None:
                                 after_write()
             else:
                 st.caption("Guest는 의견을 작성할 수 없습니다.")
+
+            if is_admin():
+                with st.expander("투표 상세 보기", expanded=False):
+                    if votes:
+                        st.markdown("**투표자**")
+                        for member in CORE_MEMBERS:
+                            if member in votes:
+                                st.markdown(f"- {member}: {votes[member]}점")
+                    else:
+                        st.caption("아직 투표한 멤버가 없습니다.")
+                    if missing:
+                        st.markdown(f"**미투표:** {', '.join(missing)}")
+                    else:
+                        st.markdown("**미투표:** 없음")
 
             # ── 본인 곡 수정/삭제 ──
             if can_write() and uploader == user:
@@ -1039,6 +1471,61 @@ def inject_styles() -> None:
             background-clip: text;
         }
 
+        .login-shell {
+            max-width: 920px;
+            margin: clamp(3rem, 9vh, 7rem) auto 1.25rem;
+        }
+        .login-card {
+            border-radius: 22px;
+            padding: clamp(1.6rem, 4vw, 2.4rem);
+            background:
+                linear-gradient(135deg, rgba(124, 58, 237, 0.12), rgba(37, 99, 235, 0.08)),
+                rgba(255, 255, 255, 0.78);
+            border: 1px solid rgba(124, 58, 237, 0.16);
+            box-shadow: 0 22px 60px rgba(30, 27, 46, 0.08);
+        }
+        .login-kicker {
+            display: inline-flex;
+            border-radius: 999px;
+            padding: 0.34rem 0.68rem;
+            background: rgba(124, 58, 237, 0.12);
+            color: #6d28d9;
+            font-size: 0.78rem;
+            font-weight: 850;
+            line-height: 1;
+        }
+        .login-card h1 {
+            margin: 0.65rem 0 0 !important;
+            font-size: clamp(2rem, 5vw, 3rem);
+        }
+        .login-card p {
+            margin: 0.75rem 0 0 !important;
+            color: #64748b;
+            font-size: 1rem;
+            line-height: 1.55;
+        }
+        .guest-panel {
+            height: 100%;
+            min-height: 9.2rem;
+            border-radius: 20px;
+            padding: 1.25rem;
+            background:
+                linear-gradient(135deg, rgba(5, 150, 105, 0.12), rgba(37, 99, 235, 0.08)),
+                rgba(255, 255, 255, 0.75);
+            border: 1px solid rgba(5, 150, 105, 0.16);
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.06);
+        }
+        .guest-panel strong {
+            color: #047857;
+            font-size: 1.2rem;
+            font-weight: 850;
+        }
+        .guest-panel p {
+            margin: 0.55rem 0 0 !important;
+            color: #475569;
+            line-height: 1.55;
+        }
+
         .schedule-banner {
             display: flex;
             align-items: center;
@@ -1136,6 +1623,42 @@ def inject_styles() -> None:
             color: #64748b;
             font-size: 0.98rem;
             line-height: 1.5;
+        }
+
+        .dashboard-card {
+            --dash-accent: #7c3aed;
+            min-height: 8rem;
+            border-radius: 18px;
+            padding: 1rem;
+            background:
+                linear-gradient(135deg, color-mix(in srgb, var(--dash-accent) 10%, transparent), rgba(255, 255, 255, 0.72)),
+                rgba(255, 255, 255, 0.78);
+            border: 1px solid color-mix(in srgb, var(--dash-accent) 22%, rgba(148, 163, 184, 0.18));
+            box-shadow: 0 14px 34px rgba(30, 27, 46, 0.06);
+        }
+        .dashboard-card span {
+            display: inline-flex;
+            border-radius: 999px;
+            padding: 0.25rem 0.58rem;
+            background: color-mix(in srgb, var(--dash-accent) 13%, white);
+            color: var(--dash-accent);
+            font-size: 0.76rem;
+            font-weight: 850;
+            line-height: 1;
+        }
+        .dashboard-card strong {
+            display: block;
+            margin-top: 0.75rem;
+            color: #1e1b2e;
+            font-size: clamp(1.25rem, 3vw, 1.65rem);
+            line-height: 1.25;
+            font-weight: 850;
+        }
+        .dashboard-card p {
+            margin: 0.35rem 0 0 !important;
+            color: #64748b;
+            font-size: 0.92rem;
+            line-height: 1.45;
         }
 
         /* ── 메인 버튼 ── */
@@ -1330,6 +1853,10 @@ def main() -> None:
     init_session_state()
     inject_styles()
 
+    if not is_authenticated():
+        render_login_page()
+        return
+
     with st.sidebar:
         st.markdown(
             """
@@ -1353,11 +1880,16 @@ def main() -> None:
             unsafe_allow_html=True,
         )
 
+    if not is_authenticated():
+        st.rerun()
+
     st.title("LAB A팀 합주 관리")
     render_confirmed_schedules_banner()
     st.divider()
 
-    if selected_menu == "선곡 투표":
+    if selected_menu == "홈":
+        render_home_tab()
+    elif selected_menu == "선곡 투표":
         render_vote_tab()
     elif selected_menu == "일정 조정":
         render_schedule_tab()
