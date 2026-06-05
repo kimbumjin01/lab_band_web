@@ -777,11 +777,18 @@ def inject_styles() -> None:
         }
 
         /* ── 사이드바 메뉴 라디오 ── */
-        [data-testid="stSidebar"] .stRadio { flex: 1; width: 100%; padding: 0 !important; }
+        [data-testid="stSidebar"] .stRadio {
+            flex: 1;
+            width: calc(100% + 0.8rem);
+            margin-left: -0.4rem;
+            margin-right: -0.4rem;
+            padding: 0 !important;
+        }
         [data-testid="stSidebar"] .stRadio > label { display: none; }
         [data-testid="stSidebar"] .stRadio div[role="radiogroup"] {
             gap: clamp(0.65rem, 2.5vw, 1rem) !important;
             width: 100% !important;
+            max-width: none !important;
             display: flex !important;
             flex-direction: column !important;
             align-items: stretch !important;
@@ -792,7 +799,10 @@ def inject_styles() -> None:
             border: 1.5px solid rgba(255, 255, 255, 0.12);
             border-radius: 18px;
             padding: clamp(1.15rem, 4.5vw, 1.6rem) clamp(1.3rem, 5vw, 1.75rem) !important;
+            display: flex !important;
+            align-items: center !important;
             width: 100% !important;
+            max-width: none !important;
             box-sizing: border-box !important;
             min-height: 3.5rem;
             font-size: clamp(1.35rem, 5.5vw, 1.65rem) !important;
