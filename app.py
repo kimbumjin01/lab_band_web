@@ -1009,22 +1009,23 @@ def render_vote_tab() -> None:
                     st.caption("아직 의견이 없습니다.")
 
             if can_write():
-                with st.form(key=f"comment_form_{song_id}", clear_on_submit=True):
-                    new_comment = st.text_area(
-                        "의견 작성",
-                        placeholder="이 곡에 대한 의견을 자유롭게 남겨주세요.",
-                        max_chars=300,
-                        height=80,
-                        label_visibility="collapsed",
-                    )
-                    if st.form_submit_button("등록", use_container_width=True):
-                        if not new_comment.strip():
-                            st.warning("내용을 입력해 주세요.")
-                        else:
-                            ok = db.add_comment(song_id, user, new_comment)
-                            if ok:
-                                st.toast("의견이 등록되었습니다!")
-                                after_write()
+                with st.expander("의견 남기기", expanded=False):
+                    with st.form(key=f"comment_form_{song_id}", clear_on_submit=True):
+                        new_comment = st.text_area(
+                            "의견 작성",
+                            placeholder="이 곡에 대한 의견을 자유롭게 남겨주세요.",
+                            max_chars=300,
+                            height=80,
+                            label_visibility="collapsed",
+                        )
+                        if st.form_submit_button("등록", use_container_width=True):
+                            if not new_comment.strip():
+                                st.warning("내용을 입력해 주세요.")
+                            else:
+                                ok = db.add_comment(song_id, user, new_comment)
+                                if ok:
+                                    st.toast("의견이 등록되었습니다!")
+                                    after_write()
             else:
                 st.caption("Guest는 의견을 작성할 수 없습니다.")
 
@@ -1630,6 +1631,7 @@ def inject_styles() -> None:
             min-height: 8rem;
             border-radius: 18px;
             padding: 1rem;
+            margin-bottom: 1rem;
             background:
                 linear-gradient(135deg, color-mix(in srgb, var(--dash-accent) 10%, transparent), rgba(255, 255, 255, 0.72)),
                 rgba(255, 255, 255, 0.78);
@@ -1659,6 +1661,19 @@ def inject_styles() -> None:
             color: #64748b;
             font-size: 0.92rem;
             line-height: 1.45;
+        }
+        div:has(> .dashboard-card) {
+            margin-bottom: 0.35rem;
+        }
+        @media (max-width: 640px) {
+            .dashboard-card {
+                min-height: 7.2rem;
+                padding: 1.05rem;
+                margin-bottom: 1.25rem;
+            }
+            div:has(> .dashboard-card) {
+                margin-bottom: 0.55rem;
+            }
         }
 
         /* ── 메인 버튼 ── */
