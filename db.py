@@ -254,6 +254,15 @@ def add_comment(song_id: int, member: str, content: str) -> bool:
     return _run_db("add_comment", _insert) is True
 
 
+def add_access_log(row: dict) -> bool:
+    try:
+        get_client().table("access_logs").insert(row).execute()
+        return True
+    except Exception:
+        logger.exception("DB error during add_access_log")
+        return False
+
+
 def delete_comment(comment_id: int) -> bool:
     def _delete() -> bool:
         get_client().table("song_comments").delete().eq("id", comment_id).execute()

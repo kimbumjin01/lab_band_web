@@ -1,5 +1,6 @@
 import json
-from datetime import date, timedelta
+import re
+from datetime import date, datetime, timedelta, timezone
 from html import escape
 from urllib.parse import parse_qs, urlparse
 
@@ -40,6 +41,7 @@ MEMBER_OPTIONS = [NAME_PLACEHOLDER, *CORE_MEMBERS, GUEST_USER]
 ACTUAL_MEMBERS = CORE_MEMBERS
 TEAM_LEADER = "김범진"
 TEAM_SIZE = len(CORE_MEMBERS)
+KST = timezone(timedelta(hours=9), "KST")
 
 MENU_OPTIONS = ["홈", "선곡 투표", "일정 조정", "합주실 예약"]
 MENU_ICONS = {
@@ -140,9 +142,13 @@ def can_view_scores() -> bool:
 def role_name() -> str | None:
     if not is_authenticated():
         return None
-    if is_admin():
+    return role_for_member(authenticated_user() or "")
+
+
+def role_for_member(member: str) -> str:
+    if member == TEAM_LEADER:
         return "Admin"
-    if is_guest():
+    if member == GUEST_USER:
         return "Guest"
     return "Member"
 
@@ -254,6 +260,156 @@ def render_sidebar_menu() -> str:
     return selected
 
 
+def header_value(headers: object, name: str) -> str:
+    for key in (name, name.lower(), name.upper(), name.title()):
+        try:
+            value = headers.get(key)  # type: ignore[attr-defined]
+        except Exception:
+            value = None
+        if value:
+            return str(value)
+    return ""
+
+
+def context_value(name: str) -> str:
+    context = getattr(st, "context", None)
+    if context is None:
+        return ""
+    value = getattr(context, name, "")
+    return "" if value is None else str(value)
+
+
+def request_headers() -> object:
+    context = getattr(st, "context", None)
+    if context is None:
+        return {}
+    return getattr(context, "headers", {}) or {}
+
+
+def version_from_user_agent(pattern: str, user_agent: str) -> str:
+    match = re.search(pattern, user_agent, re.IGNORECASE)
+    if not match:
+        return ""
+    return match.group(1).replace("_", ".")
+
+
+def parse_user_agent(user_agent: str) -> dict[str, str]:
+    ua = user_agent or ""
+    lower = ua.lower()
+
+    browser = "Unknown"
+    browser_version = ""
+    browser_patterns = [
+        ("Whale", r"Whale/([\d.]+)"),
+        ("Samsung Internet", r"SamsungBrowser/([\d.]+)"),
+        ("Edge", r"EdgA?/([\d.]+)"),
+        ("Opera", r"(?:OPR|Opera)/([\d.]+)"),
+        ("Chrome iOS", r"CriOS/([\d.]+)"),
+        ("Firefox iOS", r"FxiOS/([\d.]+)"),
+        ("Chrome", r"Chrome/([\d.]+)"),
+        ("Firefox", r"Firefox/([\d.]+)"),
+        ("Safari", r"Version/([\d.]+).*Safari"),
+    ]
+    for name, pattern in browser_patterns:
+        version = version_from_user_agent(pattern, ua)
+        if version:
+            browser = name
+            browser_version = version
+            break
+
+    os_name = "Unknown"
+    os_version = ""
+    if "iphone" in lower:
+        os_name = "iOS"
+        os_version = version_from_user_agent(r"iPhone OS ([\d_]+)", ua)
+    elif "ipad" in lower:
+        os_name = "iPadOS"
+        os_version = version_from_user_agent(r"CPU OS ([\d_]+)", ua)
+    elif "android" in lower:
+        os_name = "Android"
+        os_version = version_from_user_agent(r"Android ([\d.]+)", ua)
+    elif "cros" in lower:
+        os_name = "ChromeOS"
+        os_version = version_from_user_agent(r"CrOS [^ ]+ ([\d.]+)", ua)
+    elif "windows" in lower:
+        os_name = "Windows"
+        os_version = version_from_user_agent(r"Windows NT ([\d.]+)", ua)
+    elif "mac os x" in lower:
+        os_name = "macOS"
+        os_version = version_from_user_agent(r"Mac OS X ([\d_]+)", ua)
+    elif "linux" in lower:
+        os_name = "Linux"
+
+    if "ipad" in lower or "tablet" in lower or ("android" in lower and "mobile" not in lower):
+        device_type = "tablet"
+    elif "mobi" in lower or "iphone" in lower or "ipod" in lower:
+        device_type = "mobile"
+    elif ua:
+        device_type = "desktop"
+    else:
+        device_type = "unknown"
+
+    device_detail = "Unknown"
+    if "iphone" in lower:
+        device_detail = "iPhone"
+    elif "ipad" in lower:
+        device_detail = "iPad"
+    elif "ipod" in lower:
+        device_detail = "iPod"
+    elif "android" in lower:
+        model = re.search(r"Android [^;)]*;\s*([^;)]+)", ua, re.IGNORECASE)
+        device_detail = model.group(1).strip() if model else "Android device"
+    elif "windows" in lower:
+        device_detail = "Windows PC"
+    elif "macintosh" in lower:
+        device_detail = "Mac"
+    elif "cros" in lower:
+        device_detail = "ChromeOS device"
+    elif "linux" in lower:
+        device_detail = "Linux device"
+
+    return {
+        "browser": browser,
+        "browser_version": browser_version,
+        "os": os_name,
+        "os_version": os_version,
+        "device_type": device_type,
+        "device_detail": device_detail,
+    }
+
+
+def build_access_log(member: str) -> dict[str, str]:
+    headers = request_headers()
+    user_agent = header_value(headers, "user-agent")
+    parsed = parse_user_agent(user_agent)
+    forwarded_for = header_value(headers, "x-forwarded-for")
+
+    return {
+        "event_type": "login_success",
+        "member": member,
+        "role": role_for_member(member),
+        "login_at_kst": datetime.now(KST).replace(microsecond=0).strftime("%Y-%m-%d %H:%M:%S"),
+        "ip_address": context_value("ip_address") or forwarded_for.split(",")[0].strip(),
+        "forwarded_for": forwarded_for,
+        "user_agent": user_agent,
+        "browser": parsed["browser"],
+        "browser_version": parsed["browser_version"],
+        "os": parsed["os"],
+        "os_version": parsed["os_version"],
+        "device_type": parsed["device_type"],
+        "device_detail": parsed["device_detail"],
+        "locale": context_value("locale"),
+        "browser_timezone": context_value("timezone"),
+        "accept_language": header_value(headers, "accept-language"),
+        "app_url": context_value("url"),
+        "referrer": header_value(headers, "referer") or header_value(headers, "referrer"),
+    }
+
+
+def log_login_success(member: str) -> None:
+    db.add_access_log(build_access_log(member))
+
+
 def prewarm_app_cache() -> None:
     """로그인 전 대기 시간에 자주 쓰는 데이터를 캐시에 올린다."""
     today = date.today()
@@ -273,6 +429,7 @@ def authenticate_member(selected: str, password: str) -> bool:
         st.session_state.global_user = selected
         st.session_state.last_selected_user = selected
         st.session_state.selected_menu = "홈"
+        log_login_success(selected)
         return True
     return False
 
@@ -282,6 +439,7 @@ def authenticate_guest() -> None:
     st.session_state.global_user = GUEST_USER
     st.session_state.last_selected_user = GUEST_USER
     st.session_state.selected_menu = "홈"
+    log_login_success(GUEST_USER)
 
 
 def render_login_page() -> None:
@@ -584,6 +742,7 @@ def render_login_required() -> None:
 
 def render_sidebar_auth() -> None:
     prev_user = st.session_state.get("last_selected_user", NAME_PLACEHOLDER)
+    prev_auth = st.session_state.get("authenticated_member")
     selected = st.selectbox("이름 선택", MEMBER_OPTIONS, key="global_user")
 
     if selected != prev_user:
@@ -592,6 +751,8 @@ def render_sidebar_auth() -> None:
         st.session_state.last_selected_user = selected
 
     if selected == GUEST_USER:
+        if prev_auth != GUEST_USER:
+            log_login_success(GUEST_USER)
         st.session_state.authenticated_member = GUEST_USER
         st.caption("Guest는 비밀번호 없이 보기 전용으로 접속합니다.")
     elif selected == NAME_PLACEHOLDER:
@@ -607,6 +768,8 @@ def render_sidebar_auth() -> None:
             passwords = dict(st.secrets.get("passwords", {}))
             expected = passwords.get(selected)
             if expected and password == expected:
+                if st.session_state.get("authenticated_member") != selected:
+                    log_login_success(selected)
                 st.session_state.authenticated_member = selected
             else:
                 st.session_state.authenticated_member = None
