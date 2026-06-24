@@ -929,7 +929,7 @@ def render_home_tab() -> None:
                 if ranked:
                     for idx, (avg, vote_count, song) in enumerate(ranked[:10], start=1):
                         st.markdown(
-                            f"{idx}. **{song['title']}** · {avg:.1f}/5 · {vote_count}명"
+                            f"{idx}. **{song['title']}** · {avg:.2f}/5 · {vote_count}명"
                         )
                 else:
                     st.caption("아직 투표된 곡이 없습니다.")
@@ -1105,7 +1105,7 @@ def render_vote_tab() -> None:
             with score_col:
                 if can_view_scores():
                     if avg is not None:
-                        st.metric("평균 점수", f"{avg:.1f} / 5", f"{vote_count}명 투표")
+                        st.metric("평균 점수", f"{avg:.2f} / 5", f"{vote_count}명 투표")
                     else:
                         st.metric("평균 점수", "—", "투표 없음")
                     if missing:
