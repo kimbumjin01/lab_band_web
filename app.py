@@ -925,9 +925,9 @@ def render_home_tab() -> None:
 
         with admin_left:
             with st.container(border=True):
-                st.markdown("**평균 상위 곡 TOP 10**")
+                st.markdown("**평균 상위 곡 TOP 20**")
                 if ranked:
-                    for idx, (avg, vote_count, song) in enumerate(ranked[:10], start=1):
+                    for idx, (avg, vote_count, song) in enumerate(ranked[:20], start=1):
                         st.markdown(
                             f"{idx}. **{song['title']}** · {avg:.2f}/5 · {vote_count}명"
                         )
