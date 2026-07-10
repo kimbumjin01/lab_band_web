@@ -6,6 +6,7 @@ import streamlit as st
 from supabase import Client, create_client
 
 from schedule_logic import (
+    fetch_all_pages,
     normalize_member,
     normalize_slot_date,
     normalize_slot_time,
@@ -146,16 +147,25 @@ def get_all_availability(
     start_date: date, end_date: date
 ) -> dict[str, dict[str, bool]] | None:
     def _fetch() -> dict[str, dict[str, bool]]:
-        response = (
-            get_client()
-            .table("availability")
-            .select("member, slot_date, slot_time, available")
-            .gte("slot_date", start_date.isoformat())
-            .lte("slot_date", end_date.isoformat())
-            .execute()
-        )
+        def _fetch_page(range_start: int, range_end: int) -> list[dict]:
+            response = (
+                get_client()
+                .table("availability")
+                .select("member, slot_date, slot_time, available")
+                .eq("available", True)
+                .gte("slot_date", start_date.isoformat())
+                .lte("slot_date", end_date.isoformat())
+                .order("member")
+                .order("slot_date")
+                .order("slot_time")
+                .range(range_start, range_end)
+                .execute()
+            )
+            return response.data or []
+
+        rows = fetch_all_pages(_fetch_page)
         result: dict[str, dict[str, bool]] = {}
-        for row in response.data or []:
+        for row in rows:
             member = normalize_member(row["member"])
             key = _to_slot_key(str(row["slot_date"]), row["slot_time"])
             result.setdefault(member, {})[key] = bool(row["available"])

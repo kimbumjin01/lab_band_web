@@ -1,10 +1,29 @@
 import json
 import re
 from datetime import date, datetime
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 
 _SLOT_TIME_PATTERN = re.compile(r"^(\d{1,2}):(\d{2})")
+
+
+def fetch_all_pages(
+    fetch_page: Callable[[int, int], Sequence[dict] | None],
+    page_size: int = 1000,
+) -> list[dict]:
+    """API의 최대 행 수와 무관하게 빈 페이지가 나올 때까지 모두 조회한다."""
+    if page_size < 1:
+        raise ValueError("page_size must be positive")
+
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        page = list(fetch_page(offset, offset + page_size - 1) or [])
+        if not page:
+            return rows
+        rows.extend(page)
+        # 서버 제한이 page_size보다 작아도 다음 실제 행부터 이어서 조회한다.
+        offset += len(page)
 
 
 def normalize_member(value: Any) -> str:
