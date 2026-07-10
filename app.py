@@ -12,6 +12,7 @@ from schedule_logic import (
     availability_rows_for_save,
     schedule_save_fingerprint,
     slot_key as normalized_slot_key,
+    upcoming_schedules,
 )
 
 st.set_page_config(
@@ -772,28 +773,29 @@ def render_confirmed_schedules_banner() -> None:
     if not schedules:
         return
 
-    latest = schedules[0]
-    date_str = latest["schedule_date"]
-    note = str(latest.get("note") or "").strip()
-    note_html = (
-        f"<span class='schedule-note'>{escape(note)}</span>"
-        if note
-        else ""
-    )
-    st.markdown(
-        f"""
-        <div class="schedule-banner">
-            <div class="schedule-pin">📌</div>
-            <div class="schedule-copy">
-                <span>다음 합주</span>
-                <strong>{escape(str(date_str))}</strong>
+    upcoming = upcoming_schedules(schedules, datetime.now(KST))
+    for index, schedule in enumerate(upcoming):
+        note = str(schedule.get("note") or "").strip()
+        note_html = (
+            f"<span class='schedule-note'>{escape(note)}</span>"
+            if note
+            else ""
+        )
+        schedule_label = "다음 합주" if index == 0 else "이후 합주"
+        st.markdown(
+            f"""
+            <div class="schedule-banner">
+                <div class="schedule-pin">📌</div>
+                <div class="schedule-copy">
+                    <span>{schedule_label}</span>
+                    <strong>{escape(str(schedule['schedule_date']))}</strong>
+                </div>
+                <div class="schedule-time">{escape(str(schedule['start_time']))} ~ {escape(str(schedule['end_time']))}</div>
+                {note_html}
             </div>
-            <div class="schedule-time">{escape(str(latest['start_time']))} ~ {escape(str(latest['end_time']))}</div>
-            {note_html}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )
 
     with st.expander(f"전체 확정 일정 보기 ({len(schedules)}건)", expanded=False):
         for s in schedules:
@@ -841,13 +843,18 @@ def render_home_tab() -> None:
         all_availability = load_all_availability(today, default_end) or {}
         all_votes = (load_all_votes() or {}) if can_write() or is_admin() else {}
 
-    latest = schedules[0] if schedules else None
-    if latest:
-        next_value = str(latest["schedule_date"])
-        next_caption = f"{latest['start_time']} ~ {latest['end_time']}"
+    upcoming = upcoming_schedules(schedules, datetime.now(KST))
+    next_schedule = upcoming[0] if upcoming else None
+    if next_schedule:
+        next_value = str(next_schedule["schedule_date"])
+        next_caption = (
+            f"{next_schedule['start_time']} ~ {next_schedule['end_time']}"
+        )
+        if len(upcoming) > 1:
+            next_caption += f" · 이후 {len(upcoming) - 1}건"
     else:
         next_value = "미정"
-        next_caption = "확정된 합주 일정이 없습니다."
+        next_caption = "예정된 합주 일정이 없습니다."
 
     cols = st.columns(4)
     with cols[0]:

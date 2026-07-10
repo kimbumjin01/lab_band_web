@@ -1,5 +1,5 @@
 import unittest
-from datetime import date, time
+from datetime import date, datetime, time, timedelta, timezone
 
 from schedule_logic import (
     availability_rows_for_save,
@@ -7,10 +7,50 @@ from schedule_logic import (
     normalize_slot_time,
     schedule_save_fingerprint,
     slot_key,
+    upcoming_schedules,
 )
 
 
 class ScheduleLogicTest(unittest.TestCase):
+    def test_upcoming_schedules_use_current_time_and_start_order(self) -> None:
+        schedules = [
+            {
+                "id": 3,
+                "schedule_date": "2026-08-04",
+                "start_time": "19:00:00",
+                "end_time": "21:00:00",
+            },
+            {
+                "id": 1,
+                "schedule_date": "2026-07-09",
+                "start_time": "19:00:00",
+                "end_time": "21:00:00",
+            },
+            {
+                "id": 2,
+                "schedule_date": "2026-07-16",
+                "start_time": "18:00:00",
+                "end_time": "20:00:00",
+            },
+        ]
+        kst = timezone(timedelta(hours=9))
+        now = datetime(2026, 7, 10, 12, 0, tzinfo=kst)
+
+        result = upcoming_schedules(schedules, now)
+
+        self.assertEqual([schedule["id"] for schedule in result], [2, 3])
+
+    def test_upcoming_schedules_include_an_ongoing_practice(self) -> None:
+        schedule = {
+            "id": 1,
+            "schedule_date": "2026-07-10",
+            "start_time": "19:00",
+            "end_time": "21:00",
+        }
+        now = datetime(2026, 7, 10, 20, 0)
+
+        self.assertEqual(upcoming_schedules([schedule], now), [schedule])
+
     def test_fetches_all_pages_even_when_server_cap_is_smaller(self) -> None:
         source = [{"id": index} for index in range(1205)]
         requested_ranges: list[tuple[int, int]] = []

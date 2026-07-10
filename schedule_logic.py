@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any, Callable, Mapping, Sequence
 
 
@@ -24,6 +24,41 @@ def fetch_all_pages(
         rows.extend(page)
         # 서버 제한이 page_size보다 작아도 다음 실제 행부터 이어서 조회한다.
         offset += len(page)
+
+
+def _schedule_datetime(
+    schedule: Mapping[str, Any], time_field: str, tzinfo: Any
+) -> datetime | None:
+    try:
+        schedule_date = date.fromisoformat(str(schedule["schedule_date"]))
+        schedule_time = time.fromisoformat(str(schedule[time_field]))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    value = datetime.combine(schedule_date, schedule_time)
+    if value.tzinfo is None and tzinfo is not None:
+        value = value.replace(tzinfo=tzinfo)
+    return value
+
+
+def upcoming_schedules(
+    schedules: Sequence[Mapping[str, Any]], now: datetime
+) -> list[Mapping[str, Any]]:
+    """현재 시각에 종료되지 않은 합주를 실제 시작 시각이 가까운 순서로 반환한다."""
+    upcoming: list[tuple[datetime, Mapping[str, Any]]] = []
+    for schedule in schedules:
+        starts_at = _schedule_datetime(schedule, "start_time", now.tzinfo)
+        if starts_at is None:
+            continue
+
+        ends_at = _schedule_datetime(schedule, "end_time", now.tzinfo) or starts_at
+        if ends_at < starts_at:
+            ends_at = starts_at
+        if ends_at >= now:
+            upcoming.append((starts_at, schedule))
+
+    upcoming.sort(key=lambda item: item[0])
+    return [schedule for _, schedule in upcoming]
 
 
 def normalize_member(value: Any) -> str:
