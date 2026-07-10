@@ -5,6 +5,13 @@ from typing import Any
 import streamlit as st
 from supabase import Client, create_client
 
+from schedule_logic import (
+    normalize_member,
+    normalize_slot_date,
+    normalize_slot_time,
+    slot_key,
+)
+
 DB_ERROR_MESSAGE = "DB 연결 오류"
 logger = logging.getLogger(__name__)
 
@@ -109,18 +116,19 @@ def upsert_vote(song_id: int, member: str, score: int) -> bool:
 
 
 def _to_slot_key(slot_date: str, slot_time: str) -> str:
-    return f"{slot_date}|{slot_time}"
+    return slot_key(slot_date, slot_time)
 
 
 def get_member_availability(
     member: str, start_date: date, end_date: date
 ) -> dict[str, bool] | None:
     def _fetch() -> dict[str, bool]:
+        normalized_member = normalize_member(member)
         response = (
             get_client()
             .table("availability")
             .select("slot_date, slot_time, available")
-            .eq("member", member)
+            .eq("member", normalized_member)
             .gte("slot_date", start_date.isoformat())
             .lte("slot_date", end_date.isoformat())
             .execute()
@@ -148,7 +156,7 @@ def get_all_availability(
         )
         result: dict[str, dict[str, bool]] = {}
         for row in response.data or []:
-            member = row["member"]
+            member = normalize_member(row["member"])
             key = _to_slot_key(str(row["slot_date"]), row["slot_time"])
             result.setdefault(member, {})[key] = bool(row["available"])
         return result
@@ -176,8 +184,19 @@ def upsert_availability_batch(rows: list[dict]) -> bool:
     if not rows:
         return True
 
+    normalized_rows = [
+        {
+            **row,
+            "member": normalize_member(row.get("member")),
+            "slot_date": normalize_slot_date(row.get("slot_date")),
+            "slot_time": normalize_slot_time(row.get("slot_time")),
+            "available": bool(row.get("available", False)),
+        }
+        for row in rows
+    ]
+
     def _upsert() -> bool:
-        get_client().table("availability").upsert(rows).execute()
+        get_client().table("availability").upsert(normalized_rows).execute()
         return True
 
     return _run_db("upsert_availability_batch", _upsert) is True

@@ -1,4 +1,3 @@
-import json
 import re
 from datetime import date, datetime, timedelta, timezone
 from html import escape
@@ -9,6 +8,11 @@ import streamlit as st
 import db
 from availability_table import availability_summary_table
 from schedule_timetable import drag_schedule_timetable
+from schedule_logic import (
+    availability_rows_for_save,
+    schedule_save_fingerprint,
+    slot_key as normalized_slot_key,
+)
 
 st.set_page_config(
     page_title="LAB A팀 합주 관리",
@@ -497,7 +501,7 @@ def render_login_page() -> None:
 
 
 def slot_key(iso_date: str, time_slot: str) -> str:
-    return f"{iso_date}|{time_slot}"
+    return normalized_slot_key(iso_date, time_slot)
 
 
 @st.cache_data(ttl=15)
@@ -716,23 +720,7 @@ def save_slots_to_db(
     member: str, new_slots: dict, old_slots: dict[str, bool]
 ) -> bool:
     """컴포넌트에서 받은 slots JSON을 Supabase에 배치 저장."""
-    rows: list[dict] = []
-    for key, available in new_slots.items():
-        if "|" not in key:
-            continue
-        iso, slot_time = key.split("|", 1)
-        new_val = bool(available)
-        old_val = bool(old_slots.get(key, False))
-        if new_val == old_val:
-            continue
-        rows.append(
-            {
-                "member": member,
-                "slot_date": iso,
-                "slot_time": slot_time,
-                "available": new_val,
-            }
-        )
+    rows = availability_rows_for_save(member, new_slots, old_slots)
     return db.upsert_availability_batch(rows)
 
 
@@ -749,6 +737,7 @@ def render_sidebar_auth() -> None:
         st.session_state.authenticated_member = None
         st.session_state.pw_input = ""
         st.session_state.last_selected_user = selected
+        st.session_state.pop("last_schedule_save", None)
 
     if selected == GUEST_USER:
         if prev_auth != GUEST_USER:
@@ -1328,7 +1317,9 @@ def render_schedule_tab() -> None:
 
         if component_result and component_result.get("action") == "save":
             new_slots = component_result.get("slots", {})
-            save_fingerprint = json.dumps(new_slots, sort_keys=True, default=str)
+            save_fingerprint = schedule_save_fingerprint(
+                user, start_date, end_date, new_slots
+            )
             if st.session_state.get("last_schedule_save") != save_fingerprint:
                 with st.spinner(
                     "저장 중... 페이지를 닫거나 새로고침하지 마세요. "
