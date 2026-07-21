@@ -418,7 +418,7 @@ def log_login_success(member: str) -> None:
 def prewarm_app_cache() -> None:
     """로그인 전 대기 시간에 자주 쓰는 데이터를 캐시에 올린다."""
     today = date.today()
-    default_end = today + timedelta(days=27)
+    default_end = today + timedelta(days=48)
     db.get_confirmed_schedules()
     load_songs()
     load_all_votes()
@@ -1282,20 +1282,20 @@ def render_schedule_tab() -> None:
     render_section_header("일정 조정", "일정 조정", subtitle)
 
     today = date.today()
-    default_end = today + timedelta(days=27)
+    default_end = today + timedelta(days=48)
     date_range = st.date_input(
         "일정 범위",
         value=(today, default_end),
         min_value=today,
-        help="오늘부터 최대 4주(28일) 범위를 기본으로 합니다.",
+        help="오늘부터 최대 7주(49일) 범위를 기본으로 합니다.",
     )
     if isinstance(date_range, tuple) and len(date_range) == 2:
         start_date, end_date = date_range
     else:
         start_date = end_date = date_range
 
-    if (end_date - start_date).days + 1 > 28:
-        st.warning("선택 범위가 28일을 넘습니다. 표가 넓어질 수 있습니다.")
+    if (end_date - start_date).days + 1 > 49:
+        st.warning("선택 범위가 49일을 넘습니다. 표가 넓어질 수 있습니다.")
 
     dates_payload = dates_for_component(start_date, end_date)
     times_payload = time_slots()
